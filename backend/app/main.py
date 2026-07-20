@@ -1,0 +1,45 @@
+import socketio
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.config import settings
+from app.routers import auth, connections, skills, agents, pods, projects, tickets, runs, audit
+from app.routers import dashboard, settings as settings_router
+from app.routers.organizations import router as orgs_router, inv_router
+from app.middleware.audit_middleware import AuditMiddleware
+
+fastapi_app = FastAPI(title="Agentic SDLC API", version="1.0.0")
+
+fastapi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_url, "http://localhost:3000", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+fastapi_app.add_middleware(AuditMiddleware)
+
+fastapi_app.include_router(auth.router,             prefix="/auth",       tags=["auth"])
+fastapi_app.include_router(connections.router,      prefix="/connections", tags=["connections"])
+fastapi_app.include_router(skills.router,           prefix="/skills",     tags=["skills"])
+fastapi_app.include_router(agents.router,           prefix="/agents",     tags=["agents"])
+fastapi_app.include_router(pods.router,             prefix="/pods",       tags=["pods"])
+fastapi_app.include_router(projects.router,         prefix="/projects",   tags=["projects"])
+fastapi_app.include_router(tickets.router,          prefix="",            tags=["tickets"])
+fastapi_app.include_router(runs.router,             prefix="",            tags=["runs"])
+fastapi_app.include_router(audit.router,            prefix="/audit",      tags=["audit"])
+fastapi_app.include_router(dashboard.router,        prefix="",            tags=["dashboard"])
+fastapi_app.include_router(settings_router.router,  prefix="/settings",   tags=["settings"])
+fastapi_app.include_router(orgs_router,             prefix="/orgs",        tags=["organizations"])
+fastapi_app.include_router(inv_router,              prefix="/invitations",  tags=["invitations"])
+
+
+@fastapi_app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+# Wrap FastAPI with socket.io so both share the same process.
+# socket.io handles /socket.io/ paths; everything else goes to FastAPI.
+from socket_app import sio  # noqa: E402 — import after sio is configured
+
+app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)
