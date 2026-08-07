@@ -4,10 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import auth, connections, skills, agents, pods, projects, tickets, runs, audit
 from app.routers import dashboard, settings as settings_router
+from app.routers import billing, notifications, insights, governance, catalog, memory, public_api
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
 
-fastapi_app = FastAPI(title="Agentic SDLC API", version="1.0.0")
+fastapi_app = FastAPI(title="Agentic SDLC API", version="1.1.0")
 
 fastapi_app.add_middleware(
     CORSMiddleware,
@@ -32,10 +33,20 @@ fastapi_app.include_router(settings_router.router,  prefix="/settings",   tags=[
 fastapi_app.include_router(orgs_router,             prefix="/orgs",        tags=["organizations"])
 fastapi_app.include_router(inv_router,              prefix="/invitations",  tags=["invitations"])
 
+# ── Phase 11: commercial, governance and intelligence layer ───────────────────
+fastapi_app.include_router(billing.router,        prefix="/billing",       tags=["billing"])
+fastapi_app.include_router(notifications.router,  prefix="/notifications", tags=["notifications"])
+fastapi_app.include_router(insights.router,       prefix="",               tags=["insights"])
+fastapi_app.include_router(governance.router,     prefix="",               tags=["governance"])
+fastapi_app.include_router(catalog.router,        prefix="",               tags=["catalog"])
+fastapi_app.include_router(memory.router,         prefix="",               tags=["memory"])
+# Public, API-key authenticated surface for CI and customer automation
+fastapi_app.include_router(public_api.router,     prefix="/v1",            tags=["public-api"])
+
 
 @fastapi_app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "1.1.0", "mode": settings.deployment_mode}
 
 
 # Wrap FastAPI with socket.io so both share the same process.

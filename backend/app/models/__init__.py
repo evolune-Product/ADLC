@@ -9,9 +9,23 @@ from app.models.ticket import Ticket
 from app.models.run import Run, RunStep, Approval
 from app.models.audit import AuditLog
 
+# Phase 11 — commercial, governance and intelligence layer
+from app.models.billing import Subscription, UsageRecord
+from app.models.notification import Notification, NotificationSetting
+from app.models.governance import ApprovalPolicy, ApiKey, Webhook, WebhookDelivery
+from app.models.catalog import Template, MarketplaceListing, MarketplaceInstall
+from app.models.memory import MemoryChunk, MemoryIndex
+from app.models.insight import ReviewFinding, RunFeedback, Deployment
+
 __all__ = [
     "User", "Organization", "OrgMember", "OrgInvitation",
     "Connection", "Skill", "Agent", "AgentSkill",
     "Pod", "PodAgent", "Project", "Ticket",
     "Run", "RunStep", "Approval", "AuditLog",
+    "Subscription", "UsageRecord",
+    "Notification", "NotificationSetting",
+    "ApprovalPolicy", "ApiKey", "Webhook", "WebhookDelivery",
+    "Template", "MarketplaceListing", "MarketplaceInstall",
+    "MemoryChunk", "MemoryIndex",
+    "ReviewFinding", "RunFeedback", "Deployment",
 ]

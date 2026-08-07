@@ -7,11 +7,13 @@ An AI-powered Software Development Lifecycle orchestration platform. Connect Git
 ## How It Works
 
 ```
-Jira Ticket  →  Pod Triggered  →  Planner Agent  →  Coder Agent  →  Reviewer Agent
-     →  PR Opened  →  QA Agent  →  Awaiting Human Approval  →  DevOps Agent  →  Deployed
+Ticket  →  Pod  →  Planner  →  Coder  →  QA  →  Reviewer  →  ⏸ Human approval + policy gate
+                                                              →  DevOps  →  dev → qa → prod
 ```
 
-Each step is visible in real-time via WebSocket. The platform pauses at every production gate and waits for a human decision before continuing.
+Each step streams live over WebSocket. The platform stops at every production gate and waits
+for a human decision — and an approval policy decides whether that decision is even sufficient
+(how many approvers, what reviewer score, which paths the agent was allowed to touch).
 
 ---
 
@@ -139,13 +141,14 @@ npm run dev
 
 ---
 
-### Docker (full stack)
+### Docker
 
 ```bash
-docker compose up -d
+docker compose up -d                        # Postgres, Redis, MinIO only
+docker compose --profile app up -d --build  # + backend, worker, beat, frontend
 ```
 
-Starts PostgreSQL, Redis, MinIO, backend, and frontend together.
+The `app` profile runs migrations on boot and serves the frontend through nginx on port 3000.
 
 ---
 
@@ -197,6 +200,22 @@ A pod is an ordered group of agents. When a ticket is run through a pod, each ag
 ### Runs
 A run is one ticket being processed through a pod. It progresses through statuses: `queued → running → awaiting_approval → approved → completed`. The approval gate is mandatory before any deploy step.
 
+### Policies
+An approval policy decides whether a run may deploy to a given environment: how many approvers
+are required, which roles count, what reviewer score is needed, which severities block, which
+paths and branches agents may never touch, and how much a run may cost. Policies scope
+org-wide or per project, per environment.
+
+### Memory
+Each project can be indexed into embedded chunks so agents stop starting cold. Retrieval feeds
+the agent prompt on every run, merged PRs write outcomes back, and humans can add notes the
+repo doesn't say out loud.
+
+### Runs are metered
+A run is the billing unit. Quota is checked before work starts, every model call is costed and
+attributed, and a per-run budget cap stops a runaway ticket rather than letting it invert the
+month's margin.
+
 ---
 
 ## WebSocket Events
@@ -213,6 +232,23 @@ The frontend subscribes to a run room and receives live updates:
 | `run:approved` | `{ runId, reviewer, decision }` |
 | `run:completed` | `{ runId, status }` |
 | `run:failed` | `{ runId, error, retryCount }` |
+
+---
+
+## Feature Map
+
+| Area | What you get |
+|---|---|
+| **Orchestration** | Skills → Agents → Pods → Runs, live WebSocket traces, multi-env deploy chain |
+| **Governance** | Approval policies, protected paths/branches, N-approver rules, immutable audit log, compliance posture + evidence CSV |
+| **Review** | Reviewer agent scores each PR against your own rubric skills and posts structured findings |
+| **Commercial** | Plans, metered runs, quota enforcement, Stripe checkout/portal, per-run budget caps |
+| **Model agility** | Anthropic / OpenAI / Azure / OpenAI-compatible / Ollama, per-workspace bring-your-own key |
+| **Insight** | Cycle time, approval latency, cost per merged run, hours saved, agent scorecards, CSV export |
+| **Memory** | Repo indexing, embedding retrieval into agent prompts, human notes, merged-PR write-back |
+| **Library** | 14 built-in skills, 6 agent templates, 3 pod templates, publishable marketplace |
+| **Integrations** | GitHub, GitLab, Jira, Linear · Slack, email, signed outbound webhooks |
+| **Automation** | Public API v1 with scoped API keys — trigger runs from CI, approve from ChatOps |
 
 ---
 
@@ -237,6 +273,38 @@ GET   /runs/:id/diff
 GET   /audit                GET   /audit/export
 GET   /dashboard/stats
 GET   /settings             PUT   /settings
+
+GET   /billing              POST  /billing/checkout   PUT /billing/llm-key
+GET   /notifications        GET/PUT /notifications/settings
+GET   /analytics/summary    GET   /analytics/agents   GET /analytics/export.csv
+GET   /policies             POST  /policies
+GET   /apikeys              GET   /webhooks
+GET   /compliance/posture   GET   /compliance/evidence.csv
+GET   /templates            POST  /templates/:slug/install
+GET   /marketplace          POST  /marketplace/publish
+GET   /projects/:id/memory  POST  /projects/:id/memory/index
+```
+
+### Public API (API-key authenticated)
+
+```bash
+curl -X POST https://your-host/v1/runs \
+  -H "Authorization: Bearer adlc_live_…" \
+  -H "Content-Type: application/json" \
+  -d '{"project_id":"<uuid>","ticket_id":"<uuid>"}'
+```
+
+Scopes: `runs:read`, `runs:write`, `runs:approve`, `projects:read`, `analytics:read`.
+`runs:approve` is separate from `runs:write` on purpose — a CI token that starts work should
+not be able to wave its own work through the gate.
+
+---
+
+## Testing
+
+```bash
+cd backend && pytest tests/ -q     # 53 unit tests — pricing, policy, signatures, retrieval
+cd frontend && npm run build       # tsc + vite
 ```
 
 ---
@@ -255,6 +323,18 @@ GET   /settings             PUT   /settings
 | Runs UI (live trace, diff viewer, approval) | Done |
 | Dashboard + Audit log | Done |
 | Polish (error boundaries, skeletons, validation) | Done |
+| Organizations, roles, invitations | Done |
+| **Billing, quota + metering** | Done |
+| **Approval policies + Reviewer agent** | Done |
+| **Notifications (in-app, email, Slack, webhooks)** | Done |
+| **ROI analytics + agent scorecards** | Done |
+| **Codebase memory** | Done |
+| **Template library + marketplace** | Done |
+| **GitLab + Linear connectors** | Done |
+| **Public API + compliance export** | Done |
+| **Docker, nginx, CI** | Done |
+
+See `documents/IMPLEMENTATION_REPORT.md` for what is *not* built and why.
 
 ---
 

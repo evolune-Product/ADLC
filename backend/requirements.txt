@@ -42,6 +42,9 @@ anthropic==0.39.0
 langgraph==0.2.53
 langchain-anthropic==0.3.0
 
+# Billing (optional — the platform runs without it configured)
+stripe==11.4.0
+
 # Utilities
 python-dotenv==1.0.1
 aiofiles==24.1.0

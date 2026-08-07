@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ExternalLink, GitBranch, CheckCircle2,
@@ -9,6 +9,8 @@ import { useRun, useApproveRun, useRetryRun, useCancelRun } from '@/hooks/useRun
 import { useRunStore } from '@/stores/runStore'
 import { getSocket, connectSocket, joinRunRoom, leaveRunRoom } from '@/lib/socket'
 import PrDiffViewer from '@/components/runs/PrDiffViewer'
+import ReviewFindings from '@/components/runs/ReviewFindings'
+import FeedbackWidget from '@/components/runs/FeedbackWidget'
 import type { RunStep, DeployTarget } from '@/types'
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
@@ -22,7 +24,7 @@ const STATUS_COLOR: Record<string, string> = {
   failed:            'bg-red-100 text-red-700',
 }
 
-const STEP_ICON: Record<string, JSX.Element> = {
+const STEP_ICON: Record<string, ReactElement> = {
   success: <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />,
   failed:  <XCircle      className="h-4 w-4 text-red-500   shrink-0" />,
   running: <Loader2      className="h-4 w-4 text-blue-500  shrink-0 animate-spin" />,
@@ -453,6 +455,9 @@ export default function RunDetailPage() {
         )}
       </div>
 
+      {/* Reviewer agent verdict — what the approval policy gates on */}
+      <ReviewFindings runId={run.id} />
+
       {/* Code changes (shown whenever a PR exists) */}
       {run.pr_number && (
         <div className="space-y-3">
@@ -461,6 +466,11 @@ export default function RunDetailPage() {
           </h2>
           <PrDiffViewer runId={run.id} />
         </div>
+      )}
+
+      {/* Quality signal — the only input that turns run history into scorecards */}
+      {(run.status === 'completed' || run.status === 'awaiting_approval' || run.status === 'failed') && (
+        <FeedbackWidget runId={run.id} />
       )}
     </div>
   )

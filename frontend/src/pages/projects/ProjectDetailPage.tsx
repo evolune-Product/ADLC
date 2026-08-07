@@ -8,6 +8,7 @@ import { useProject, useUpdateProject, useDeleteProject, useArchiveProject } fro
 import { useTickets, useSyncTickets } from '@/hooks/useTickets'
 import { usePods } from '@/hooks/usePods'
 import { useProjectRuns } from '@/hooks/useRuns'
+import MemoryPanel from '@/components/projects/MemoryPanel'
 
 const TABS = ['Overview', 'Tickets', 'Runs', 'Settings'] as const
 type Tab = typeof TABS[number]
@@ -66,7 +67,7 @@ export default function ProjectDetailPage() {
     updateMutation.mutate({
       name: settingsName,
       description: settingsDesc,
-      pod_id: settingsPodId || null,
+      pod_id: settingsPodId || undefined,
       context_md: settingsContextMd,
     })
   }
@@ -198,6 +199,9 @@ export default function ProjectDetailPage() {
               </div>
             </div>
           )}
+
+          {/* What the agents know about this codebase */}
+          <MemoryPanel projectId={project.id} />
         </div>
       )}
 

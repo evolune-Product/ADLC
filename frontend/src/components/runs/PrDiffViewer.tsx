@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactElement } from 'react'
 import { ChevronDown, ChevronRight, FilePlus, FileMinus, FileEdit } from 'lucide-react'
 import { useRunDiff } from '@/hooks/useRuns'
 
@@ -50,7 +50,7 @@ function PatchView({ patch }: { patch: string }) {
 
 // ─── Status icon ──────────────────────────────────────────────────────────────
 
-const STATUS_ICON: Record<string, JSX.Element> = {
+const STATUS_ICON: Record<string, ReactElement> = {
   added:    <FilePlus  className="h-3.5 w-3.5 text-green-500 shrink-0" />,
   removed:  <FileMinus className="h-3.5 w-3.5 text-red-500   shrink-0" />,
   modified: <FileEdit  className="h-3.5 w-3.5 text-blue-500  shrink-0" />,

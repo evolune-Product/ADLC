@@ -4,11 +4,13 @@ import {
   LayoutDashboard, Link2, BookOpen, Bot, Layers,
   FolderOpen, Play, ClipboardList, Settings, LogOut,
   Menu, X, Users, Building2,
+  BarChart3, CreditCard, Shield, Store, Terminal, FileCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { useOrgStore } from '@/stores/orgStore'
 import OrgSwitcher from '@/components/org/OrgSwitcher'
+import NotificationBell from '@/components/notifications/NotificationBell'
 
 const NAV = [
   {
@@ -23,6 +25,7 @@ const NAV = [
       { label: 'Skills',      to: '/skills',      icon: BookOpen },
       { label: 'Agents',      to: '/agents',      icon: Bot },
       { label: 'Pods',        to: '/pods',        icon: Layers },
+      { label: 'Marketplace', to: '/marketplace', icon: Store },
     ],
   },
   {
@@ -35,7 +38,17 @@ const NAV = [
   {
     group: 'Observe',
     items: [
+      { label: 'Insights',    to: '/analytics',   icon: BarChart3 },
       { label: 'Audit Log',   to: '/audit',       icon: ClipboardList },
+      { label: 'Compliance',  to: '/compliance',  icon: FileCheck },
+    ],
+  },
+  {
+    group: 'Govern',
+    items: [
+      { label: 'Policies',    to: '/policies',    icon: Shield },
+      { label: 'Developer',   to: '/developer',   icon: Terminal },
+      { label: 'Billing',     to: '/billing',     icon: CreditCard },
       { label: 'Settings',    to: '/settings',    icon: Settings },
     ],
   },
@@ -188,6 +201,10 @@ function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
         <Menu className="h-4 w-4" />
       </button>
       <span className="lg:hidden text-sm font-semibold text-foreground">Agentic SDLC</span>
+      {/* The approval gate is worthless if the reviewer never hears about it. */}
+      <div className="ml-auto">
+        <NotificationBell />
+      </div>
     </header>
   )
 }

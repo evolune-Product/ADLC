@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { PodWizard } from '@/components/pods/PodWizard'
 import { usePod, useUpdatePod, useDeletePod } from '@/hooks/usePods'
 import type { PodFormData } from '@/components/pods/PodWizard'
+import type { PodAgent } from '@/types'
 
 export default function PodDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -15,7 +16,7 @@ export default function PodDetailPage() {
 
   function handleSave(data: PodFormData) {
     updateMutation.mutate(
-      { name: data.name, description: data.description, agents: data.agents },
+      { name: data.name, description: data.description, agents: data.agents as unknown as PodAgent[] },
       { onSuccess: () => {} }
     )
   }

@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SkillForm } from '@/components/skills/SkillForm'
 import { useCreateSkill } from '@/hooks/useSkills'
+import type { Skill } from '@/types'
 
 export default function NewSkillPage() {
   const navigate = useNavigate()
@@ -24,7 +25,7 @@ export default function NewSkillPage() {
       <SkillForm
         loading={createMutation.isPending}
         onSave={(data) =>
-          createMutation.mutate(data, {
+          createMutation.mutate(data as Partial<Skill>, {
             onSuccess: (skill) => navigate(`/skills/${skill.id}`),
           })
         }

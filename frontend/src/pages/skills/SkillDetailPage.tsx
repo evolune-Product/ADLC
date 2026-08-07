@@ -3,6 +3,7 @@ import { ArrowLeft, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SkillForm } from '@/components/skills/SkillForm'
 import { useSkill, useUpdateSkill, useDeleteSkill } from '@/hooks/useSkills'
+import type { Skill } from '@/types'
 
 export default function SkillDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -65,7 +66,7 @@ export default function SkillDetailPage() {
         initial={skill}
         splitView
         loading={updateMutation.isPending}
-        onSave={(data) => updateMutation.mutate(data)}
+        onSave={(data) => updateMutation.mutate(data as Partial<Skill>)}
       />
     </div>
   )

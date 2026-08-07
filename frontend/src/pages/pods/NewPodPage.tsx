@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { PodWizard } from '@/components/pods/PodWizard'
 import { useCreatePod } from '@/hooks/usePods'
 import type { PodFormData } from '@/components/pods/PodWizard'
+import type { PodAgent } from '@/types'
 
 export default function NewPodPage() {
   const navigate = useNavigate()
@@ -9,7 +10,7 @@ export default function NewPodPage() {
 
   function handleSave(data: PodFormData) {
     createMutation.mutate(
-      { name: data.name, description: data.description, agents: data.agents },
+      { name: data.name, description: data.description, agents: data.agents as unknown as PodAgent[] },
       { onSuccess: (pod) => navigate(`/pods/${pod.id}`) }
     )
   }

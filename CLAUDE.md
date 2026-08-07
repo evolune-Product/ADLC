@@ -224,6 +224,40 @@ GET    /runs/:id/diff              ← PR diff via PyGithub
 GET    /audit                      GET    /audit/export           ← CSV stream
 GET    /dashboard/stats
 GET    /settings                   PUT    /settings
+
+── Phase 11 ────────────────────────────────────────────────────────────────
+GET    /billing                    GET    /billing/plans
+POST   /billing/checkout           POST   /billing/portal          PUT /billing/plan
+PUT    /billing/llm-key            DELETE /billing/llm-key          POST /billing/webhook
+
+GET    /notifications              POST   /notifications/read-all
+POST   /notifications/:id/read     GET/PUT /notifications/settings
+POST   /notifications/test-slack
+
+GET    /analytics/summary          GET    /analytics/timeseries
+GET    /analytics/agents           GET    /analytics/export.csv
+GET    /deployments                POST   /deployments/:id/rollback
+GET    /runs/:id/findings          GET/POST /runs/:id/feedback
+
+GET/POST   /policies               PUT/DELETE /policies/:id
+GET/POST   /apikeys                DELETE /apikeys/:id
+GET/POST   /webhooks               DELETE /webhooks/:id
+POST   /webhooks/:id/test          GET    /webhooks/:id/deliveries
+GET    /compliance/posture         GET    /compliance/evidence.csv
+
+GET    /templates                  GET    /templates/:slug
+POST   /templates/:slug/install    DELETE /templates/:id
+GET    /marketplace                POST   /marketplace/publish
+POST   /marketplace/:id/rate
+
+GET    /projects/:id/memory        POST   /projects/:id/memory/index
+POST   /projects/:id/memory/search GET    /projects/:id/memory/chunks
+POST   /projects/:id/memory/notes  DELETE /projects/:id/memory
+
+── Public API (Bearer adlc_live_… , scoped) ────────────────────────────────
+GET    /v1/whoami                  GET    /v1/projects
+GET/POST /v1/runs                  GET    /v1/runs/:id
+POST   /v1/runs/:id/approve        GET    /v1/analytics/summary
 ```
 
 ---
@@ -330,6 +364,8 @@ run:awaiting_approval    { runId, prUrl, prNumber }
 run:approved             { runId, reviewer, decision }
 run:completed            { runId, status }
 run:failed               { runId, error, retryCount }
+run:awaiting_env_approval{ runId, envIndex, env, branch, totalEnvs }
+run:policy:blocked       { runId, policyName, reasons[], approvalsHave, approvalsNeed }
 ```
 
 ---
@@ -426,16 +462,67 @@ docker compose down            # stop
 
 ---
 
-## What Hasn't Been Built Yet (potential Phase 11+)
+## Phase 11 — Commercial, Governance & Intelligence Layer (✅ Done)
 
-- Docker production build (Dockerfiles exist in blueprint but not created yet)
-- GitHub Actions CI/CD workflow
-- Nginx config files
-- Email notifications on approval needed / run failed
-- GitHub OAuth login button on auth pages (only email/password exists)
-- Multi-env deploy loop in DevOps agent (dev → QA → prod progression)
-- Tests (Pytest for backend, Vitest for frontend)
-- MinIO skill file storage (skills save `md_content` direct to DB, not MinIO currently)
+Built to close the gaps in `documents/MARKET_AND_COMPETITIVE_RESEARCH_2026.md`.
+Full write-up: `documents/IMPLEMENTATION_REPORT.md`.
+
+### New backend modules
+```
+models/     billing.py (Subscription, UsageRecord) · notification.py · governance.py
+            (ApprovalPolicy, ApiKey, Webhook, WebhookDelivery) · catalog.py (Template,
+            MarketplaceListing, MarketplaceInstall) · memory.py (MemoryChunk, MemoryIndex)
+            insight.py (ReviewFinding, RunFeedback, Deployment)
+services/   llm_service (multi-provider + costing) · metering_service (plans, quota)
+            policy_service (deploy gate) · notifier · email_service · slack_service
+            webhook_service (HMAC) · embedding_service · memory_service
+            stripe_service · analytics_service · gitlab_service · linear_service
+routers/    billing · notifications · insights · governance · catalog · memory · public_api
+agents/     review_agent.py  ← the 5th agent; scores the PR, posts findings
+tasks/      memory_tasks.py  (repo indexing + nightly retention prune)
+data/       builtin_templates.py (14 skills, 6 agents, 3 pods)
+migrations/ d7e8f9a0b1c2_phase11_commercial_layer.py (16 tables)
+```
+
+### New frontend
+```
+pages/      billing/BillingPage · analytics/AnalyticsPage · marketplace/MarketplacePage
+            governance/{Policies,Developer,Compliance}Page · notifications/NotificationsPage
+components/ notifications/NotificationBell · runs/{ReviewFindings,FeedbackWidget}
+            projects/MemoryPanel
+hooks/      usePlatform.ts   ← all Phase 11 hooks live here (shared invalidation graph)
+types/      platform.ts
+```
+
+### Sidebar (updated)
+```
+(ungrouped)  Dashboard
+Build        Connections · Skills · Agents · Pods · Marketplace
+Work         Projects · Runs
+Observe      Insights · Audit Log · Compliance
+Govern       Policies · Developer · Billing · Settings
+```
+Plus a notification bell in the topbar.
+
+### Run pipeline (updated)
+`sprint → dev → qa → review → [human approval + policy gate] → merge → multi-env deploy`
+
+Quota is checked **before** work starts; a per-run budget cap aborts runaway runs;
+a policy violation returns the run to `awaiting_approval` rather than failing it.
+
+---
+
+## What Still Isn't Built (Phase 12+)
+
+- MCP server exposing runs/approvals as tools to other orchestrators
+- Marketplace creator payouts (listings support pricing; no payout flow)
+- Bi-directional Jira/Linear writeback (tickets sync in, status doesn't sync back)
+- AI sprint planning / story-point estimation
+- SSO (SAML/OIDC) and SCIM provisioning
+- VS Code extension
+- Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
+- Vitest for the frontend (backend has 53 pytest unit tests)
+- MinIO skill file storage (skills still save `md_content` direct to DB)
 
 ---
 
@@ -451,3 +538,9 @@ docker compose down            # stop
 8. **Two Celery tasks**: Never block a worker at the approval gate — `task_run_until_approval` stops, `task_resume_after_approval` continues
 9. **onto-label class**: Use for ALL section eyebrow labels — defined in `index.css`, it's `text-[0.65rem] font-semibold tracking-[0.12em] uppercase`
 10. **Orange accent `#E8632A`**: Only accent color in the design — use for pending states, CTA highlights, brand moments
+11. **Never pass `temperature`/`top_p`/`top_k` to Anthropic** — current Claude models reject them with a 400. `llm_service` only forwards sampling params to OpenAI-shaped providers.
+12. **Money is integers**: `cost_millicents` (1 cent = 1000) and `price_cents`. No floats anywhere in the billing path.
+13. **Every agent LLM call goes through `llm_service.complete()`** — that is what makes BYO-keys, cost attribution and budget caps work. A direct `anthropic.Anthropic()` call bypasses metering.
+14. **Memory embeddings are JSONB, not pgvector** — stock Postgres 15 works. Swap point is `memory_service.retrieve()`.
+15. **Stripe is optional**: with no `STRIPE_SECRET_KEY`, `/billing/checkout` applies the plan directly and returns `simulated: true`.
+16. **Review is advisory; policy is enforcement** — `review_agent` never fails a run, only an `ApprovalPolicy` can block a deploy.

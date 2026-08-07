@@ -1,15 +1,13 @@
 import { useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { AlertTriangle } from 'lucide-react'
 import { useOrgs, useUpdateOrg, useDeleteOrg } from '@/hooks/useOrgs'
 import { useOrgStore } from '@/stores/orgStore'
-import { useAuthStore } from '@/stores/authStore'
 import { getApiError } from '@/lib/api'
 
 export default function OrgSettingsPage() {
   const { orgId } = useParams<{ orgId: string }>()
-  const navigate = useNavigate()
   const { data: orgs = [] } = useOrgs()
   const org = orgs.find((o) => o.id === orgId)
 
@@ -19,7 +17,6 @@ export default function OrgSettingsPage() {
   const updateOrg = useUpdateOrg()
   const deleteOrg = useDeleteOrg()
   const { clearActiveOrg } = useOrgStore()
-  const user = useAuthStore((s) => s.user)
 
   const isOwner = org?.role === 'owner'
 

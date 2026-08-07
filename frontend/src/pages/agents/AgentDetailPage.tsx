@@ -3,6 +3,7 @@ import { ArrowLeft, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AgentWizard } from '@/components/agents/AgentWizard'
 import { useAgent, useUpdateAgent, useDeleteAgent } from '@/hooks/useAgents'
+import type { Agent } from '@/types'
 
 export default function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -58,7 +59,7 @@ export default function AgentDetailPage() {
       <AgentWizard
         initial={agent}
         loading={updateMutation.isPending}
-        onSave={(data) => updateMutation.mutate(data)}
+        onSave={(data) => updateMutation.mutate(data as Partial<Agent>)}
       />
     </div>
   )

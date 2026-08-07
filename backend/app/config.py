@@ -8,8 +8,41 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://sdlc_user:sdlc_pass@localhost:5432/agentic_sdlc"
     redis_url: str = "redis://localhost:6379"
 
-    # LLM
+    # LLM — Anthropic is the default provider; the rest exist so an org can
+    # bring its own model vendor (Forrester's "model agility" criterion) and so
+    # self-hosted installs can run fully offline against Ollama.
     anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    ollama_base_url: str = "http://localhost:11434"
+    default_llm_model: str = "claude-sonnet-4-6"
+
+    # Embeddings (codebase memory). Falls back to hashed lexical vectors when unset.
+    embedding_api_key: str = ""
+    embedding_base_url: str = ""
+    embedding_model: str = "text-embedding-3-small"
+
+    # Billing (optional — the platform runs without Stripe configured)
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_team: str = ""
+    stripe_price_growth: str = ""
+    stripe_price_enterprise: str = ""
+
+    # Email (SMTP — works with SES/Postmark/Resend/corporate relay)
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+
+    # Enterprise / self-hosted
+    license_key: str = ""
+    deployment_mode: str = "cloud"      # cloud | self_hosted
+    audit_retention_days: int = 365
+    run_retention_days: int = 0         # 0 = keep forever
 
     # Google OAuth
     google_client_id: str = ""

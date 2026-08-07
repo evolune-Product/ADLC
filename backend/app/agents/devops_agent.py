@@ -105,8 +105,22 @@ def run_devops_agent(state: dict, db: Session) -> dict:
 
 # ─── GitHub helpers ────────────────────────────────────────────────────────────
 
+def _connection(project: dict, db: Session) -> Connection | None:
+    cid = project.get("repo_connection_id")
+    return db.query(Connection).filter(Connection.id == cid).first() if cid else None
+
+
+def _gitlab_client(project: dict, db: Session):
+    """Returns a GitLabClient when this project lives on GitLab, else None."""
+    conn = _connection(project, db)
+    if not conn or not conn.access_token or (conn.type or "github").lower() != "gitlab":
+        return None
+    from app.services.gitlab_service import GitLabClient
+    return GitLabClient(decrypt_token(conn.access_token), conn.workspace_url)
+
+
 def _get_github_repo(project: dict, db: Session):
-    conn = db.query(Connection).filter(Connection.id == project["repo_connection_id"]).first()
+    conn = _connection(project, db)
     if not conn or not conn.access_token:
         return None
     token = decrypt_token(conn.access_token)
@@ -116,6 +130,11 @@ def _get_github_repo(project: dict, db: Session):
 def _merge_pr(project: dict, pr_number: int | None, db: Session) -> dict:
     if not pr_number or not project.get("repo_connection_id") or not project.get("repo_name"):
         return {"merged": False, "message": "No PR number or repo configured"}
+
+    gitlab = _gitlab_client(project, db)
+    if gitlab:
+        return gitlab.merge(project["repo_name"], pr_number)
+
     try:
         repo = _get_github_repo(project, db)
         if not repo:
@@ -146,9 +165,15 @@ def _get_pr_base_branch(project: dict, pr_number: int | None, db: Session) -> st
 
 
 def _merge_branches(project: dict, source: str, target: str, db: Session) -> dict:
-    """Fast-forward/merge source branch into target branch on GitHub."""
+    """Fast-forward/merge source branch into target branch (GitHub or GitLab)."""
     if not project.get("repo_connection_id") or not project.get("repo_name"):
         return {"merged": False, "message": "Repo not configured"}
+
+    gitlab = _gitlab_client(project, db)
+    if gitlab:
+        return gitlab.merge_branches(project["repo_name"], source, target,
+                                     f"Deploy: merge {source} into {target}")
+
     try:
         repo = _get_github_repo(project, db)
         if not repo:

@@ -1,13 +1,14 @@
 import { useNavigate } from 'react-router-dom'
 import { ProjectWizard } from '@/components/projects/ProjectWizard'
 import { useCreateProject, type ProjectFormData } from '@/hooks/useProjects'
+import type { Project } from '@/types'
 
 export default function NewProjectPage() {
   const navigate = useNavigate()
   const createMutation = useCreateProject()
 
   function handleSave(data: ProjectFormData) {
-    createMutation.mutate(data, {
+    createMutation.mutate(data as Partial<Project>, {
       onSuccess: (project) => navigate(`/projects/${project.id}`),
     })
   }

@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AgentWizard } from '@/components/agents/AgentWizard'
 import { useCreateAgent } from '@/hooks/useAgents'
+import type { Agent } from '@/types'
 
 export default function NewAgentPage() {
   const navigate = useNavigate()
@@ -24,7 +25,7 @@ export default function NewAgentPage() {
       <AgentWizard
         loading={createMutation.isPending}
         onSave={(data) =>
-          createMutation.mutate(data, {
+          createMutation.mutate(data as Partial<Agent>, {
             onSuccess: (agent) => navigate(`/agents/${agent.id}`),
           })
         }

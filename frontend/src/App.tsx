@@ -35,6 +35,13 @@ import NewOrgPage from '@/pages/org/NewOrgPage'
 import OrgSettingsPage from '@/pages/org/OrgSettingsPage'
 import OrgMembersPage from '@/pages/org/OrgMembersPage'
 import AcceptInvitePage from '@/pages/org/AcceptInvitePage'
+import BillingPage from '@/pages/billing/BillingPage'
+import AnalyticsPage from '@/pages/analytics/AnalyticsPage'
+import MarketplacePage from '@/pages/marketplace/MarketplacePage'
+import PoliciesPage from '@/pages/governance/PoliciesPage'
+import DeveloperPage from '@/pages/governance/DeveloperPage'
+import CompliancePage from '@/pages/governance/CompliancePage'
+import NotificationsPage from '@/pages/notifications/NotificationsPage'
 
 import { useAuthStore } from '@/stores/authStore'
 import { isAuthenticated } from '@/lib/auth'
@@ -121,6 +128,13 @@ export default function App() {
               <Route path="/runs/:runId" element={<RunDetailPage />} />
               <Route path="/audit" element={<AuditPage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/billing" element={<BillingPage />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/marketplace" element={<MarketplacePage />} />
+              <Route path="/policies" element={<PoliciesPage />} />
+              <Route path="/developer" element={<DeveloperPage />} />
+              <Route path="/compliance" element={<CompliancePage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/org/new" element={<NewOrgPage />} />
               <Route path="/org/:orgId/settings" element={<OrgSettingsPage />} />
               <Route path="/org/:orgId/members" element={<OrgMembersPage />} />

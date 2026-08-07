@@ -1,21 +1,27 @@
 """
-Dev Agent — generates code changes via Claude, then applies them via PyGithub.
+Dev Agent — generates code changes via the LLM layer, then applies them to
+GitHub or GitLab and opens a PR/MR.
+
+Phase 11 changes:
+  * calls through `llm_service` (any provider, BYO key) and meters every token
+  * injects retrieved codebase memory so runs stop starting cold
+  * enforces the blast-radius half of the approval policy *before* writing —
+    protected paths, protected branches and a max-files-changed cap are checked
+    against the model's proposed changes rather than discovered at review time
 """
 import time
-import uuid
-import json
 
-import anthropic
-from github import Github, GithubException
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.agents._common import (build_system_prompt, call_llm, find_agent,
+                                start_step, write_step)
 from app.models.agent import Agent
 from app.models.connection import Connection
-from app.models.run import Run, RunStep
+from app.models.project import Project
+from app.models.run import Run
+from app.services import policy_service
 from app.services.encryption import decrypt_token
 from app.services.notification_service import emit_run_event
-
 
 _IMPLEMENT_TOOL = {
     "name": "implement_changes",
@@ -46,28 +52,20 @@ _IMPLEMENT_TOOL = {
     },
 }
 
+_ROLE_INTRO = ("You are an expert Dev Agent. You write clean, production-ready code.\n"
+               "ALWAYS use the implement_changes tool to return your code changes. "
+               "Never write raw code outside the tool.")
 
-def _find_agent(pod_agents: list, role: str, db: Session) -> Agent | None:
-    for pa in pod_agents:
-        if pa.get("agent_role") == role:
-            agent = db.query(Agent).filter(Agent.id == pa["agent_id"]).first()
-            if agent:
-                return agent
+
+def _resolve_agent(pod_agents: list, db: Session) -> Agent | None:
+    agent = find_agent(pod_agents, "dev", db)
+    if agent:
+        return agent
+    for pa in pod_agents:                      # fall back to any agent in the pod
+        found = db.query(Agent).filter(Agent.id == pa["agent_id"]).first()
+        if found:
+            return found
     return None
-
-
-def _build_system_prompt(agent: Agent, project: dict) -> str:
-    parts = ["You are an expert Dev Agent. You write clean, production-ready code.\n"]
-    if agent.agent_skills:
-        parts.append("## Your Skills\n")
-        for binding in sorted(agent.agent_skills, key=lambda x: x.priority):
-            skill = binding.skill
-            if skill and skill.md_content:
-                parts.append(f"### {skill.name}\n{skill.md_content}\n")
-    if project.get("context_md"):
-        parts.append(f"\n## Project Context\n{project['context_md']}\n")
-    parts.append("\nALWAYS use the implement_changes tool to return your code changes. Never write raw code outside the tool.")
-    return "\n".join(parts)
 
 
 def run_dev_agent(state: dict, db: Session) -> dict:
@@ -80,29 +78,18 @@ def run_dev_agent(state: dict, db: Session) -> dict:
 
     start_ms = int(time.time() * 1000)
 
-    agent = _find_agent(pod_agents, "dev", db)
-    if not agent:
-        # Fall back to first available agent
-        for pa in pod_agents:
-            agent = db.query(Agent).filter(Agent.id == pa["agent_id"]).first()
-            if agent:
-                break
+    agent = _resolve_agent(pod_agents, db)
     if not agent:
         error = "No dev agent found in pod"
-        _write_step(db, run_id, None, "dev", "code_changes", "failed", {}, {}, error, 0)
+        write_step(db, run_id, None, "dev", "code_changes", "failed", {}, {}, error, 0)
         return {**state, "status": "failed", "errors": state.get("errors", []) + [error]}
 
-    emit_run_event(run_id, "run:step:started", {
-        "runId": run_id, "stepName": "code_changes", "agentRole": "dev"
-    })
+    start_step(run_id, "code_changes", "dev", db)
 
-    run = db.query(Run).filter(Run.id == run_id).first()
-    if run:
-        run.current_step = "dev:code_changes"
-        db.commit()
-
-    # ── Call Claude with tool use ──
-    system = _build_system_prompt(agent, project)
+    system = build_system_prompt(
+        agent, project, role_intro=_ROLE_INTRO, db=db,
+        memory_query=f"{ticket.get('title', '')} {ticket.get('description', '')} {sprint_plan[:500]}",
+    )
     user_msg = (
         f"Implement the following sprint plan:\n\n{sprint_plan}\n\n"
         f"Ticket: {ticket.get('jira_id')} — {ticket.get('title')}\n"
@@ -115,70 +102,70 @@ def run_dev_agent(state: dict, db: Session) -> dict:
     )
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=agent.llm_model or "claude-sonnet-4-6",
-            max_tokens=8192,
-            system=system,
-            tools=[_IMPLEMENT_TOOL],
-            tool_choice={"type": "any"},
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        result = call_llm(db, run_id=run_id, agent=agent, agent_role="dev",
+                          system=system, user=user_msg, tool=_IMPLEMENT_TOOL, max_tokens=8192)
+        changes = result.tool_input
+        if not changes:
+            raise ValueError("Model did not return an implement_changes tool call")
 
-        # Extract tool use block
-        tool_block = next(
-            (b for b in response.content if b.type == "tool_use" and b.name == "implement_changes"),
-            None,
-        )
-        if not tool_block:
-            raise ValueError("Claude did not return implement_changes tool call")
+        branch_name = changes.get("branch_name") or f"agent/{ticket.get('jira_id', 'task').lower()}-auto"
+        pr_title = changes.get("pr_title") or f"[Agent] {ticket.get('title', 'Changes')}"
+        pr_body = changes.get("pr_body") or sprint_plan
+        files = changes.get("files") or []
 
-        changes = tool_block.input
-        branch_name = changes.get("branch_name", f"agent/{ticket.get('jira_id', 'task').lower()}-auto")
-        pr_title    = changes.get("pr_title", f"[Agent] {ticket.get('title', 'Changes')}")
-        pr_body     = changes.get("pr_body", sprint_plan)
-        files       = changes.get("files", [])
+        # ── Policy pre-flight: what is this agent allowed to touch at all? ────
+        project_row = db.query(Project).filter(Project.id == project["id"]).first()
+        policy = policy_service.resolve_policy(
+            db,
+            org_id=project_row.org_id if project_row else None,
+            project_id=project_row.id if project_row else None,
+        )
+        violations = policy_service.check_changes(policy, files=files, branch=branch_name)
+        if violations:
+            error = "Blocked by approval policy '{}': {}".format(
+                policy.get("name", "Default"), "; ".join(violations))
+            write_step(db, run_id, str(agent.id), "dev", "code_changes", "failed",
+                       {"files": [f.get("path") for f in files]},
+                       {"policy_violations": violations, "policy": policy.get("name")},
+                       error, int(time.time() * 1000) - start_ms)
+            emit_run_event(run_id, "run:policy:blocked",
+                           {"runId": str(run_id), "violations": violations,
+                            "policy": policy.get("name")})
+            return {**state, "status": "failed", "policy_violations": violations,
+                    "errors": state.get("errors", []) + [error]}
 
         log_text = f"Branch: {branch_name}\nFiles: {[f['path'] for f in files]}"
-        emit_run_event(run_id, "run:step:log", {
-            "runId": run_id, "stepName": "code_changes", "log": log_text
-        })
+        emit_run_event(run_id, "run:step:log",
+                       {"runId": str(run_id), "stepName": "code_changes", "log": log_text})
 
-        # ── Apply changes via PyGithub ──
-        pr_url, pr_number = _apply_github_changes(
-            agent=agent,
-            project=project,
-            branch_name=branch_name,
-            pr_title=pr_title,
-            pr_body=pr_body,
-            files=files,
-            db=db,
+        pr_url, pr_number = _apply_changes(
+            agent=agent, project=project, branch_name=branch_name, pr_title=pr_title,
+            pr_body=pr_body, files=files, db=db,
         )
 
         duration_ms = int(time.time() * 1000) - start_ms
-        _write_step(db, run_id, str(agent.id), "dev", "code_changes", "success",
-                    {"sprint_plan_length": len(sprint_plan)},
-                    {"branch_name": branch_name, "pr_url": pr_url, "pr_number": pr_number,
-                     "files_changed": len(files)},
-                    log_text, duration_ms)
+        write_step(db, run_id, str(agent.id), "dev", "code_changes", "success",
+                   {"sprint_plan_length": len(sprint_plan)},
+                   {"branch_name": branch_name, "pr_url": pr_url, "pr_number": pr_number,
+                    "files_changed": len(files), "model": result.model,
+                    "cost_usd": round(result.cost_usd, 4)},
+                   log_text, duration_ms)
 
-        # Update run with PR info
+        run = db.query(Run).filter(Run.id == run_id).first()
         if run:
-            run.branch_name = branch_name
-            run.pr_url      = pr_url
-            run.pr_number   = pr_number
+            run.branch_name, run.pr_url, run.pr_number = branch_name, pr_url, pr_number
             db.commit()
 
-        emit_run_event(run_id, "run:step:completed", {
-            "runId": run_id, "stepName": "code_changes", "status": "success",
-            "output": {"pr_url": pr_url, "branch_name": branch_name}
-        })
+        emit_run_event(run_id, "run:step:completed",
+                       {"runId": str(run_id), "stepName": "code_changes", "status": "success",
+                        "output": {"pr_url": pr_url, "branch_name": branch_name}})
 
         return {
             **state,
             "branch_name": branch_name,
             "pr_url": pr_url,
             "pr_number": pr_number,
+            "changed_files": [f.get("path") for f in files],
             "current_agent": "qa",
             "dev_retries": dev_retries,
         }
@@ -186,84 +173,65 @@ def run_dev_agent(state: dict, db: Session) -> dict:
     except Exception as e:
         duration_ms = int(time.time() * 1000) - start_ms
         error = f"Dev agent error: {str(e)}"
-        _write_step(db, run_id, str(agent.id) if agent else None, "dev", "code_changes",
-                    "failed", {}, {}, error, duration_ms)
-        emit_run_event(run_id, "run:step:failed", {"runId": run_id, "error": error})
+        write_step(db, run_id, str(agent.id) if agent else None, "dev", "code_changes",
+                   "failed", {}, {}, error, duration_ms)
+        emit_run_event(run_id, "run:step:failed", {"runId": str(run_id), "error": error})
         return {**state, "status": "failed", "errors": state.get("errors", []) + [error]}
 
 
-def _apply_github_changes(
-    agent: Agent,
-    project: dict,
-    branch_name: str,
-    pr_title: str,
-    pr_body: str,
-    files: list,
-    db: Session,
-) -> tuple[str, int]:
-    """Create branch, commit files, open PR. Returns (pr_url, pr_number)."""
+# ── VCS application (GitHub or GitLab) ────────────────────────────────────────
+
+def _apply_changes(*, agent, project: dict, branch_name: str, pr_title: str,
+                   pr_body: str, files: list, db: Session) -> tuple[str, int]:
     repo_connection_id = project.get("repo_connection_id")
     repo_name = project.get("repo_name")
-
     if not repo_connection_id or not repo_name:
-        raise ValueError("Project has no GitHub connection or repo configured")
+        raise ValueError("Project has no repository connection or repo configured")
 
     conn = db.query(Connection).filter(Connection.id == repo_connection_id).first()
     if not conn or not conn.access_token:
-        raise ValueError("GitHub connection not found or missing token")
+        raise ValueError("Repository connection not found or missing token")
 
     token = decrypt_token(conn.access_token)
-    g = Github(token)
-    repo = g.get_repo(repo_name)
+    if (conn.type or "github").lower() == "gitlab":
+        return _apply_gitlab(token, conn.workspace_url, agent, repo_name,
+                             branch_name, pr_title, pr_body, files)
+    return _apply_github(token, agent, repo_name, branch_name, pr_title, pr_body, files)
 
+
+def _apply_github(token, agent, repo_name, branch_name, pr_title, pr_body, files) -> tuple[str, int]:
+    from github import Github, GithubException
+
+    repo = Github(token).get_repo(repo_name)
     default_branch = agent.default_branch or repo.default_branch or "main"
     base_sha = repo.get_branch(default_branch).commit.sha
 
-    # Create branch
     try:
         repo.create_git_ref(ref=f"refs/heads/{branch_name}", sha=base_sha)
     except GithubException as e:
-        if e.status == 422:  # branch already exists
-            pass
-        else:
+        if e.status != 422:          # 422 = branch already exists
             raise
 
-    # Commit each file
     for file in files:
-        path    = file["path"]
-        content = file["content"]
-        action  = file.get("action", "create")
-        msg     = f"agent: {action} {path}"
+        path, content = file["path"], file["content"]
+        msg = f"agent: {file.get('action', 'create')} {path}"
         try:
             existing = repo.get_contents(path, ref=branch_name)
             repo.update_file(path, msg, content, existing.sha, branch=branch_name)
         except GithubException:
             repo.create_file(path, msg, content, branch=branch_name)
 
-    # Open PR
-    pr = repo.create_pull(
-        title=pr_title,
-        body=pr_body,
-        head=branch_name,
-        base=default_branch,
-    )
+    pr = repo.create_pull(title=pr_title, body=pr_body, head=branch_name, base=default_branch)
     return pr.html_url, pr.number
 
 
-def _write_step(db: Session, run_id: str, agent_id: str | None, agent_role: str,
-                step_name: str, status: str, input_: dict, output: dict,
-                log: str | None, duration_ms: int):
-    step = RunStep(
-        id=uuid.uuid4(),
-        run_id=run_id,
-        agent_id=agent_id,
-        agent_role=agent_role,
-        step_name=step_name,
-        status=status,
-        input=input_,
-        output=output,
-        log=log,
-        duration_ms=duration_ms,
-    )
-    db.add(step)
-    db.commit()
+def _apply_gitlab(token, host, agent, repo_name, branch_name, pr_title, pr_body, files) -> tuple[str, int]:
+    from app.services.gitlab_service import GitLabClient
+
+    client = GitLabClient(token, host)
+    default_branch = agent.default_branch or client.default_branch(repo_name)
+    client.create_branch(repo_name, branch_name, default_branch)
+    client.commit_files(repo_name, branch_name, f"agent: {pr_title}", files)
+    mr = client.create_merge_request(repo_name, source=branch_name, target=default_branch,
+                                     title=pr_title, description=pr_body)
+    return mr["url"], mr["number"]

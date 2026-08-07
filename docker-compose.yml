@@ -1,16 +1,29 @@
+# Full-stack Agentic SDLC.
+#
+#   docker compose up -d                       # infra only (postgres/redis/minio)
+#   docker compose --profile app up -d --build # + backend, worker, beat, frontend
+#
+# The app profile is opt-in so `docker compose up` stays the fast path for local
+# development against a natively-run backend.
+
 services:
 
   postgres:
     image: postgres:15-alpine
     restart: always
     environment:
-      POSTGRES_USER: sdlc_user
-      POSTGRES_PASSWORD: sdlc_pass
-      POSTGRES_DB: agentic_sdlc
+      POSTGRES_USER: ${POSTGRES_USER:-sdlc_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sdlc_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-agentic_sdlc}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sdlc_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -19,19 +32,86 @@ services:
       - redis_data:/data
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   minio:
     image: minio/minio:latest
     restart: always
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
     ports:
       - "9000:9000"
       - "9001:9001"
+
+  # ── Application (profile: app) ──────────────────────────────────────────────
+
+  backend:
+    profiles: ["app"]
+    build: ./backend
+    restart: always
+    env_file: [./backend/.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sdlc_user}:${POSTGRES_PASSWORD:-sdlc_pass}@postgres:5432/${POSTGRES_DB:-agentic_sdlc}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports:
+      - "8000:8000"
+    # Migrations run on boot so a fresh volume is usable without a manual step.
+    command: >
+      sh -c "alembic upgrade head &&
+             gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker
+             --workers 2 --bind 0.0.0.0:8000 --timeout 120 --access-logfile -"
+
+  worker:
+    profiles: ["app"]
+    build: ./backend
+    restart: always
+    env_file: [./backend/.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sdlc_user}:${POSTGRES_PASSWORD:-sdlc_pass}@postgres:5432/${POSTGRES_DB:-agentic_sdlc}
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    command: celery -A celery_app worker --loglevel=info
+
+  beat:
+    profiles: ["app"]
+    build: ./backend
+    restart: always
+    env_file: [./backend/.env]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sdlc_user}:${POSTGRES_PASSWORD:-sdlc_pass}@postgres:5432/${POSTGRES_DB:-agentic_sdlc}
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis: { condition: service_healthy }
+    # Drives the nightly retention prune — a documented policy nobody executes
+    # is an audit finding.
+    command: celery -A celery_app beat --loglevel=info
+
+  frontend:
+    profiles: ["app"]
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:8000}
+    restart: always
+    depends_on: [backend]
+    ports:
+      - "3000:80"
 
 volumes:
   postgres_data:

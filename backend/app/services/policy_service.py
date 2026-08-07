@@ -1,0 +1,205 @@
+"""
+Approval policy engine — the control-plane primitive the category is converging on.
+
+Forrester's ADP criteria and every 2026 agent-governance writeup name the same
+five things: tool/path allowlists, read-to-write escalation, human approval
+routing, spend caps, and an audit trail. The approval gate already existed here;
+this module gives it teeth by deciding, per environment:
+
+  * how many humans must approve, and which roles count
+  * whether the Reviewer agent must pass, and at what score
+  * what the agent was never allowed to touch in the first place
+  * what a single run may cost
+
+Resolution order (most specific wins): project+env → project+'*' → org+env →
+org+'*' → built-in default.
+"""
+from __future__ import annotations
+
+import fnmatch
+import uuid
+from dataclasses import dataclass, field
+
+from sqlalchemy.orm import Session
+
+from app.models.governance import ApprovalPolicy
+from app.models.insight import ReviewFinding
+from app.models.run import Approval
+
+SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+# Production-shaped default used when an org has defined no policy at all:
+# one approver, no reviewer gate. Deliberately permissive — governance a team
+# didn't ask for that blocks their first run is how a pilot dies.
+DEFAULT_POLICY = {
+    "name": "Default",
+    "environment": "*",
+    "min_approvers": 1,
+    "approver_roles": ["owner", "admin", "member"],
+    "require_review_pass": False,
+    "min_review_score": 0,
+    "block_on_severity": None,
+    "protected_paths": [],
+    "protected_branches": [],
+    "max_files_changed": 0,
+    "max_run_cost_cents": 0,
+}
+
+
+@dataclass
+class PolicyDecision:
+    allowed: bool
+    reasons: list[str] = field(default_factory=list)
+    policy_id: uuid.UUID | None = None
+    policy_name: str = "Default"
+    approvals_required: int = 1
+    approvals_have: int = 0
+    review_score: int | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "allowed": self.allowed,
+            "reasons": self.reasons,
+            "policy_id": str(self.policy_id) if self.policy_id else None,
+            "policy_name": self.policy_name,
+            "approvals_required": self.approvals_required,
+            "approvals_have": self.approvals_have,
+            "review_score": self.review_score,
+        }
+
+
+def _as_dict(p: ApprovalPolicy) -> dict:
+    return {
+        "id": p.id,
+        "name": p.name,
+        "environment": p.environment,
+        "min_approvers": p.min_approvers,
+        "approver_roles": p.approver_roles or DEFAULT_POLICY["approver_roles"],
+        "require_review_pass": p.require_review_pass,
+        "min_review_score": p.min_review_score,
+        "block_on_severity": p.block_on_severity,
+        "protected_paths": p.protected_paths or [],
+        "protected_branches": p.protected_branches or [],
+        "max_files_changed": p.max_files_changed,
+        "max_run_cost_cents": p.max_run_cost_cents,
+    }
+
+
+def resolve_policy(db: Session, *, org_id, project_id, environment: str = "*") -> dict:
+    """Return the effective policy dict for this project + environment."""
+    candidates = (
+        db.query(ApprovalPolicy)
+        .filter(ApprovalPolicy.is_active.is_(True))
+        .filter(
+            (ApprovalPolicy.project_id == project_id)
+            | ((ApprovalPolicy.project_id.is_(None)) & (ApprovalPolicy.org_id == org_id))
+        )
+        .all()
+    )
+    if not candidates:
+        return dict(DEFAULT_POLICY)
+
+    def rank(p: ApprovalPolicy) -> int:
+        score = 0
+        if p.project_id == project_id:
+            score += 2
+        if p.environment == environment:
+            score += 1
+        return score
+
+    scoped = [p for p in candidates if p.environment in (environment, "*")]
+    if not scoped:
+        return dict(DEFAULT_POLICY)
+    return _as_dict(max(scoped, key=rank))
+
+
+# ── Pre-flight: what the agent may touch ──────────────────────────────────────
+
+def check_changes(policy: dict, *, files: list[dict], branch: str | None) -> list[str]:
+    """
+    Run BEFORE the PR is opened. Blast-radius control is cheaper than review:
+    it is the read-to-write escalation boundary that agent-governance writeups
+    identify as the critical heuristic.
+    """
+    violations: list[str] = []
+    paths = [f.get("path", "") for f in files]
+
+    for pattern in policy.get("protected_paths") or []:
+        hits = [p for p in paths if fnmatch.fnmatch(p, pattern)]
+        if hits:
+            violations.append(
+                f"Protected path '{pattern}' would be modified: {', '.join(hits[:5])}"
+            )
+
+    for pattern in policy.get("protected_branches") or []:
+        if branch and fnmatch.fnmatch(branch, pattern):
+            violations.append(f"Branch '{branch}' matches protected pattern '{pattern}'")
+
+    cap = policy.get("max_files_changed") or 0
+    if cap and len(files) > cap:
+        violations.append(f"Change touches {len(files)} files; policy allows {cap}")
+
+    return violations
+
+
+# ── Approval gate: may this run deploy? ───────────────────────────────────────
+
+def evaluate_deploy(
+    db: Session, *, run_id, policy: dict, approver_roles_present: list[str] | None = None
+) -> PolicyDecision:
+    reasons: list[str] = []
+
+    approvals = (
+        db.query(Approval)
+        .filter(Approval.run_id == run_id, Approval.decision == "approved")
+        .all()
+    )
+    distinct_reviewers = {a.reviewer_id for a in approvals if a.reviewer_id}
+    have = len(distinct_reviewers) or len(approvals)
+    need = policy.get("min_approvers", 1)
+    if have < need:
+        reasons.append(f"{have}/{need} required approvals")
+
+    findings = db.query(ReviewFinding).filter(ReviewFinding.run_id == run_id).all()
+    score = review_score(findings) if findings else None
+
+    if policy.get("require_review_pass"):
+        if score is None:
+            reasons.append("Reviewer agent has not produced a verdict")
+        elif score < policy.get("min_review_score", 0):
+            reasons.append(f"Review score {score} is below the required {policy['min_review_score']}")
+
+    block_at = policy.get("block_on_severity")
+    if block_at:
+        threshold = SEVERITY_RANK.get(block_at, 99)
+        blocking = [f for f in findings if SEVERITY_RANK.get(f.severity, 0) >= threshold]
+        if blocking:
+            reasons.append(
+                f"{len(blocking)} unresolved {block_at}+ finding(s): "
+                + "; ".join(f.message[:60] for f in blocking[:3])
+            )
+
+    if approver_roles_present is not None:
+        allowed_roles = set(policy.get("approver_roles") or [])
+        if allowed_roles and not (set(approver_roles_present) & allowed_roles):
+            reasons.append(f"Approver role not permitted (needs one of: {', '.join(sorted(allowed_roles))})")
+
+    return PolicyDecision(
+        allowed=not reasons,
+        reasons=reasons,
+        policy_id=policy.get("id"),
+        policy_name=policy.get("name", "Default"),
+        approvals_required=need,
+        approvals_have=have,
+        review_score=score,
+    )
+
+
+def review_score(findings) -> int:
+    """
+    100 = clean. Weighted so one critical finding alone fails a 70-point gate,
+    which is the behaviour an engineering lead expects from "block on critical".
+    """
+    weights = {"info": 0, "low": 3, "medium": 8, "high": 20, "critical": 40}
+    penalty = sum(weights.get(getattr(f, "severity", "info"), 0) for f in findings)
+    return max(0, 100 - penalty)
