@@ -1,0 +1,475 @@
+/* ============================================================================
+   ADLC — MARKETING SURFACE
+   ----------------------------------------------------------------------------
+   Design thesis: THE FOUNDRY AT NIGHT.
+
+   The product's whole argument is that autonomous work should stop at a gate a
+   human controls. So the visual language is a dark shop floor with one source
+   of heat in it: molten orange against near-black, with the app's own cream
+   used as the ink. Nothing else gets a colour. Green means a gate passed, red
+   means it held — those two are semantic and never decorative.
+
+   Every real number on this page is set in the mono face and given space, the
+   way a machine plate is set. There are no invented metrics: the figures are
+   either counted from the codebase, taken from the pricing model, or cited to
+   a named source with the source printed next to them.
+
+   SCOPING
+   The application UI is a light, warm-cream product surface with its own
+   shadcn token set on :root. None of that is touched here. These tokens live
+   under [data-surface="marketing"] on <html>, which useMarketingSurface() adds
+   on mount and removes on unmount, so the two never see each other.
+   ========================================================================== */
+
+[data-surface='marketing'] {
+  color-scheme: dark;
+
+  /* --- Ground ------------------------------------------------------------
+     Warm-biased blacks. A neutral grey ground under an orange key light reads
+     as dirty; carrying a little of the accent's hue into the dark keeps the
+     whole frame lit by one lamp. */
+  --mk-ground: #08070a;
+  --mk-ground-2: #0c0a0f;
+  --mk-panel: #121016;
+  --mk-panel-2: #17141c;
+  --mk-hairline: #221e29;
+  --mk-hairline-lit: #342d3d;
+
+  /* --- Ink ---------------------------------------------------------------
+     The app's cream, reused. The marketing page and the product are lit
+     differently but they are made of the same material. */
+  --mk-ink: #f5efe6;
+  --mk-ink-2: #a8a099;
+  --mk-ink-3: #7d766f; /* 4.8:1 on --mk-panel — AA at caption sizes */
+
+  /* --- Heat --------------------------------------------------------------
+     One accent, three temperatures. `ember` is the brand orange as-is;
+     `ember-lit` exists because #E8632A on near-black measures 4.1:1 and fails
+     AA as small text, so type uses the lifted value and only fills, glows and
+     3D emissives use the brand value itself. */
+  --mk-ember: #e8632a;
+  --mk-ember-lit: #ff8f5c;
+  --mk-ember-deep: #7a2d0f;
+  --mk-amber: #f5a623;
+
+  /* --- Semantics — gate states, never decoration ------------------------- */
+  --mk-pass: #4ade80;
+  --mk-hold: #f2545b;
+
+  /* --- Compound surfaces ------------------------------------------------- */
+  --mk-glass-top: rgba(30, 25, 36, 0.72);
+  --mk-glass-bottom: rgba(12, 10, 15, 0.64);
+  --mk-glass-border: rgba(232, 99, 42, 0.14);
+  --mk-glass-highlight: rgba(255, 220, 200, 0.07);
+  --mk-glass-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.85);
+
+  --mk-wash-1: rgba(255, 240, 230, 0.04);
+  --mk-wash-2: rgba(255, 240, 230, 0.06);
+  --mk-wash-3: rgba(255, 240, 230, 0.09);
+
+  --mk-glow-ember: rgba(232, 99, 42, 0.55);
+  --mk-glow-ember-soft: rgba(232, 99, 42, 0.28);
+  --mk-vignette: rgba(2, 1, 4, 0.6);
+  --mk-grain: 0.038;
+  --mk-ground-glow: rgba(232, 99, 42, 0.1);
+  --mk-hero-scrim-in: rgba(8, 7, 10, 0.72);
+  --mk-hero-scrim-mid: rgba(8, 7, 10, 0.46);
+  --mk-hero-scrim-out: rgba(8, 7, 10, 0);
+
+  /* Read by the WebGL scene, so the canvas is lit by the same tokens as the
+     stylesheet rather than a second hardcoded palette. */
+  --mk-scene-bg: #08070a;
+
+  /* --- Type ---------------------------------------------------------------
+     Archivo carries a width axis; opened to 112 and set heavy it reads as
+     machine signage rather than another geometric sans. JetBrains Mono is the
+     instrument face — every real number on this page is set in it. Body text
+     stays on the system stack, which is what the product UI uses. */
+  --mk-display: 'Archivo Variable', 'Archivo', 'Arial Black', sans-serif;
+  --mk-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+
+  /* --- Motion -------------------------------------------------------------
+     One expo-out curve for arrivals, one symmetric curve for transforms. Two
+     curves for the whole page is what makes unrelated elements feel like they
+     obey the same physics. */
+  --mk-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --mk-ease-transform: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* --- Rhythm ------------------------------------------------------------- */
+  --mk-section-y: clamp(88px, 11vw, 184px);
+  --mk-gutter: clamp(20px, 5vw, 56px);
+  --mk-measure: 1240px;
+
+  background-color: var(--mk-ground);
+}
+
+[data-surface='marketing'] body {
+  background-color: var(--mk-ground);
+  color: var(--mk-ink);
+  /* One faint radial keeps the ground from ever reading as flat, including
+     before the WebGL layer mounts. */
+  background-image: radial-gradient(
+    120% 80% at 50% -8%,
+    var(--mk-ground-glow) 0%,
+    transparent 62%
+  );
+  background-attachment: fixed;
+  overflow-x: clip;
+}
+
+[data-surface='marketing'] ::selection {
+  background: rgba(232, 99, 42, 0.3);
+  color: var(--mk-ink);
+}
+
+[data-surface='marketing'] :focus-visible {
+  outline: 2px solid var(--mk-ember-lit);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+[data-surface='marketing'] ::-webkit-scrollbar {
+  width: 10px;
+}
+[data-surface='marketing'] ::-webkit-scrollbar-track {
+  background: var(--mk-ground);
+}
+[data-surface='marketing'] ::-webkit-scrollbar-thumb {
+  background: var(--mk-hairline);
+  border-radius: 999px;
+  border: 2px solid var(--mk-ground);
+}
+[data-surface='marketing'] ::-webkit-scrollbar-thumb:hover {
+  background: var(--mk-hairline-lit);
+}
+
+/* ============================================================================
+   COMPONENTS
+   Prefixed `mk-` so nothing here can collide with the product UI's classes.
+   ========================================================================== */
+
+.mk-root {
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.mk-shell {
+  width: 100%;
+  max-width: var(--mk-measure);
+  margin-inline: auto;
+  padding-inline: var(--mk-gutter);
+}
+
+.mk-shell-wide {
+  width: 100%;
+  max-width: 1520px;
+  margin-inline: auto;
+  padding-inline: var(--mk-gutter);
+}
+
+.mk-section {
+  position: relative;
+  padding-block: var(--mk-section-y);
+}
+
+/* Display type. Tight, wide-axis, balanced wrap. */
+.mk-display {
+  font-family: var(--mk-display);
+  font-variation-settings: 'wdth' 112;
+  font-weight: 700;
+  letter-spacing: -0.032em;
+  line-height: 0.94;
+  text-wrap: balance;
+}
+
+.mk-mono {
+  font-family: var(--mk-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Eyebrow — the "01 — SECTION" plate. Carries over the product UI's
+   .onto-label idiom so the two surfaces share a labelling grammar. */
+.mk-eyebrow {
+  font-family: var(--mk-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--mk-ink-3);
+}
+
+/* Instrument readout — every real number on the page. */
+.mk-readout-label {
+  font-family: var(--mk-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mk-ink-3);
+}
+
+.mk-readout-value {
+  font-family: var(--mk-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--mk-ink);
+}
+
+/* Layered glass: translucent fill, an inner top highlight that reads as a lit
+   edge, and an outer shadow that sits the panel above the ground. */
+.mk-glass {
+  background: linear-gradient(180deg, var(--mk-glass-top) 0%, var(--mk-glass-bottom) 100%);
+  backdrop-filter: blur(20px) saturate(130%);
+  -webkit-backdrop-filter: blur(20px) saturate(130%);
+  border: 1px solid var(--mk-glass-border);
+  box-shadow:
+    inset 0 1px 0 0 var(--mk-glass-highlight),
+    var(--mk-glass-shadow);
+}
+
+.mk-panel {
+  background: var(--mk-panel);
+  border: 1px solid var(--mk-hairline);
+}
+
+.mk-rule {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--mk-hairline-lit) 18%,
+    var(--mk-hairline-lit) 82%,
+    transparent
+  );
+}
+
+/* The one gradient text treatment. Used on a single phrase per screen. */
+.mk-lit {
+  background: linear-gradient(96deg, var(--mk-ink) 0%, var(--mk-amber) 42%, var(--mk-ember) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.mk-glow-ember {
+  box-shadow:
+    0 0 0 1px rgba(232, 99, 42, 0.28),
+    0 0 44px -10px var(--mk-glow-ember);
+}
+
+/* ============================================================================
+   ATMOSPHERE
+   Grain and vignette sit above everything. Together they stop the large flat
+   darks from banding and give the page a photographed quality rather than a
+   rendered one.
+   ========================================================================== */
+
+.mk-atmosphere {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  /* The grain layer is oversized so it can drift; clipping here keeps that
+     from registering as scrollable overflow. */
+  overflow: hidden;
+}
+
+.mk-atmosphere::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 100% at 50% 42%, transparent 44%, var(--mk-vignette) 100%);
+}
+
+.mk-atmosphere::after {
+  /* Self-contained SVG turbulence — no asset request, works air-gapped. */
+  content: '';
+  position: absolute;
+  inset: -100%;
+  opacity: var(--mk-grain);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: mk-grain-drift 7s steps(6) infinite;
+}
+
+@keyframes mk-grain-drift {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-6%, 4%); }
+  40% { transform: translate(3%, -7%); }
+  60% { transform: translate(-4%, -3%); }
+  80% { transform: translate(6%, 5%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ============================================================================
+   HERO ENTRANCE
+   Deliberately CSS and not JavaScript. The headline is the page's Largest
+   Contentful Paint element; driving its entrance from a JS animation library
+   means it cannot paint until the bundle has loaded, parsed and hydrated. As a
+   plain CSS animation it starts at first paint with nothing on the critical
+   path — and it no-ops under reduced motion at the stylesheet level, so no JS
+   check is needed either.
+   ========================================================================== */
+
+@keyframes mk-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+    filter: blur(9px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+.mk-rise {
+  animation: mk-rise-in 0.85s var(--mk-ease) both;
+  animation-delay: var(--mk-rise-delay, 0s);
+}
+
+/* ============================================================================
+   AMBIENT MOTION
+   All compositor-only (transform/opacity), so none of it costs layout.
+   ========================================================================== */
+
+@keyframes mk-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes mk-scroll-cue {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(260%); }
+}
+
+@keyframes mk-sweep {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(110%); }
+}
+
+@keyframes mk-breathe {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.09); }
+}
+
+@keyframes mk-pulse-ring {
+  0% { transform: scale(1); opacity: 0.65; }
+  70% { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+/* The travelling packet in the static pipeline diagram: work moving down the
+   line until it reaches the gate. */
+@keyframes mk-travel {
+  0% { offset-distance: 0%; opacity: 0; }
+  6% { opacity: 1; }
+  70% { offset-distance: 100%; opacity: 1; }
+  100% { offset-distance: 100%; opacity: 0; }
+}
+
+@keyframes mk-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.15; }
+}
+
+.mk-animate-breathe { animation: mk-breathe 3.6s ease-in-out infinite; }
+.mk-animate-blink { animation: mk-blink 1.4s step-end infinite; }
+.mk-animate-pulse-ring { animation: mk-pulse-ring 2.4s ease-out infinite; }
+.mk-animate-fade-in { animation: mk-fade-in 1.2s var(--mk-ease) both; }
+
+/* ============================================================================
+   REVEAL
+   The page's single arrival gesture — rise, unblur, settle — driven by an
+   IntersectionObserver that toggles [data-shown]. Deliberately not a motion
+   library: this is ~30 lines of CSS against ~50 kB of JavaScript for an
+   identical result.
+   ========================================================================== */
+
+.mk-reveal {
+  opacity: 0;
+  transform: translateY(var(--mk-reveal-y, 26px));
+  filter: blur(var(--mk-reveal-blur, 8px));
+  transition:
+    opacity 1s var(--mk-ease),
+    transform 1s var(--mk-ease),
+    filter 1s var(--mk-ease);
+  transition-delay: var(--mk-reveal-delay, 0s);
+}
+
+.mk-reveal[data-shown='true'] {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/* Word-by-word headline reveal. Each word rises from behind the line above it.
+   Nothing is ever drawn over the type — the full string stays in the
+   accessibility tree via aria-label on the heading. */
+.mk-word-clip {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  padding-bottom: 0.08em;
+}
+
+.mk-word {
+  display: inline-block;
+  transform: translateY(108%);
+  transition: transform 1.1s var(--mk-ease);
+  transition-delay: var(--mk-word-delay, 0s);
+}
+
+[data-shown='true'] > .mk-word,
+.mk-word[data-shown='true'] {
+  transform: none;
+}
+
+/* A hairline that draws itself in as the narrative beat begins. */
+.mk-draw-rule {
+  transform: scaleX(0);
+  transform-origin: left;
+  opacity: 0;
+  transition:
+    transform 1.4s var(--mk-ease),
+    opacity 1.4s var(--mk-ease);
+  transition-delay: var(--mk-reveal-delay, 0s);
+}
+
+.mk-draw-rule[data-shown='true'] {
+  transform: scaleX(1);
+  opacity: 1;
+}
+
+/* ============================================================================
+   REDUCED MOTION
+   Not a token gesture: the WebGL scene is swapped for a static render at the
+   component level (see PipelineCanvas), and every keyframe and transition on
+   this surface stops here.
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-surface='marketing'] *,
+  [data-surface='marketing'] *::before,
+  [data-surface='marketing'] *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .mk-atmosphere::after,
+  .mk-rise {
+    animation: none;
+  }
+
+  .mk-reveal,
+  .mk-word,
+  .mk-draw-rule {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}

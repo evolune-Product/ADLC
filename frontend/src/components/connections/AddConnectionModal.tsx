@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { GitBranch, Building2, Zap } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -18,7 +19,10 @@ import type { ConnectionType } from '@/types'
 
 // ─── Provider grid ───────────────────────────────────────────────────────────
 
-const PROVIDERS: { type: ConnectionType; label: string; description: string; Icon: React.ElementType }[] = [
+// `LucideIcon`, not `React.ElementType`: the latter is a union of every
+// intrinsic tag, so React 19's types intersect their props and `className`
+// resolves to `never`.
+const PROVIDERS: { type: ConnectionType; label: string; description: string; Icon: LucideIcon }[] = [
   { type: 'github',         label: 'GitHub',         description: 'Source control & CI/CD',   Icon: GitBranch },
   { type: 'gitlab',         label: 'GitLab',         description: 'Source control & CI/CD',   Icon: GitBranch },
   { type: 'jira',           label: 'Jira',           description: 'Issue tracker',             Icon: Building2 },

@@ -1,11 +1,14 @@
 import { GitBranch, Building2, Zap, Trash2, RefreshCw } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { ConnectionStatusBadge } from './ConnectionStatusBadge'
 import { useDeleteConnection, useTestConnection } from '@/hooks/useConnections'
 import type { Connection, ConnectionType } from '@/types'
 
-const TYPE_META: Record<ConnectionType, { label: string; Icon: React.ElementType }> = {
+// See AddConnectionModal: `React.ElementType` collapses `className` to `never`
+// under React 19's types.
+const TYPE_META: Record<ConnectionType, { label: string; Icon: LucideIcon }> = {
   github:         { label: 'GitHub',         Icon: GitBranch },
   gitlab:         { label: 'GitLab',         Icon: GitBranch },
   jira:           { label: 'Jira',           Icon: Building2 },

@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 
 import ErrorBoundary from '@/components/ErrorBoundary'
 import LandingPage from '@/pages/landing/LandingPage'
+import PricingPage from '@/pages/landing/PricingPage'
 import AuthLayout from '@/layouts/AuthLayout'
 import DashboardLayout from '@/layouts/DashboardLayout'
 import LoginPage from '@/pages/auth/LoginPage'
@@ -146,6 +147,7 @@ export default function App() {
             <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
             <Route path="/auth/github/callback" element={<GitHubCallbackPage />} />
             <Route path="/" element={<LandingPage />} />
+            <Route path="/pricing" element={<PricingPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
           <Toaster richColors position="top-right" />

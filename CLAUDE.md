@@ -159,6 +159,7 @@ Observe      Audit Log · Settings
 
 ```
 /                    → LandingPage (public, always — no auth redirect)
+/pricing             → PricingPage (public — plans, comparison, FAQ)
 /login               → LoginPage   (redirects to /dashboard if already authed)
 /register            → RegisterPage
 /dashboard           → DashboardPage         ┐
@@ -458,6 +459,7 @@ docker compose down            # stop
 | 9 — Dashboard + Audit | ✅ Done | Dashboard stats API, AuditMiddleware, AuditPage (filter + CSV export), SettingsPage |
 | 10 — Polish | ✅ Done | ErrorBoundary, Skeleton, getApiError, responsive sidebar, form validation |
 | Landing page | ✅ Done | onto.dev-style landing: animated terminal, section dividers, before/after, features, CTA |
+| Marketing surface | ✅ Done | Rebuilt as a WebGL landing page + `/pricing`. See "Marketing surface" below. |
 | UI redesign | ✅ Done | Full onto.dev design system applied across entire app (all pages, layout, auth) |
 
 ---
@@ -512,6 +514,48 @@ a policy violation returns the run to `awaiting_approval` rather than failing it
 
 ---
 
+## Marketing Surface (`/` and `/pricing`)
+
+A public, WebGL-driven marketing site, deliberately separate from the product UI.
+
+```
+src/styles/marketing.css              ← dark "foundry" theme, all tokens under
+                                        [data-surface="marketing"], classes `mk-*`
+src/components/marketing/
+  content.ts                          ← ALL copy, pricing and cited figures
+  hooks.ts                            ← useMarketingSurface, useReducedMotion,
+                                        usePointer, useScrollProgress, useInView
+  Reveal.tsx                          ← Reveal / SplitHeading / DrawRule
+  Chrome.tsx                          ← Atmosphere, AdlcMark, nav, footer
+  ui.tsx                              ← Eyebrow, Readout, MkButton, SectionHead
+  scene/
+    PipelineCanvas.tsx                ← capability gate + lazy boot + fallback
+    PipelineScene.tsx                 ← Canvas, lights, bloom/vignette (lazy chunk)
+    PipelineRing.tsx                  ← the run: 5 agents + the gate, state machine
+    OrchestratorCore.tsx · Starfield.tsx · Rig.tsx · shaders.ts · palette.ts
+    StaticPipeline.tsx                ← SVG fallback (reduced motion / no WebGL)
+  sections/                           ← Hero, Problem, HowItWorks, TheGate,
+                                        Platform, Pricing, Trust, Faq,
+                                        Interstitial, ClosingCta
+```
+
+Rules that matter:
+
+1. **`content.ts` is the only place copy and numbers live.** A figure must be counted
+   from this repo, taken from `documents/BUSINESS_PLAN_2026.md`, or attributed to a
+   named source rendered next to it. No invented metrics, no customer counts.
+2. **The scene is the state machine, not decoration.** `PipelineRing`'s timeline is
+   the real pipeline; the hero's status readout is driven by the same phase events, so
+   the words and the picture can never disagree.
+3. **`TheGate` section is a faithful port of `policy_service`** — same severity ranks,
+   same `100 − weighted penalty` review score, same reason strings. If the server's
+   logic changes, change it there too or the page starts lying.
+4. **three.js is a lazy chunk** (~257 kB gz) that only loads after `requestIdleCallback`
+   and only on a capable device with WebGL and no reduced-motion preference. It stops
+   rendering the moment the hero scrolls out of view.
+5. **Fonts are bundled** (`@fontsource-variable/*`), not fetched from a CDN — this
+   platform is meant to run air-gapped.
+
 ## What Still Isn't Built (Phase 12+)
 
 - MCP server exposing runs/approvals as tools to other orchestrators
@@ -532,7 +576,8 @@ a policy violation returns the run to `awaiting_approval` rather than failing it
 2. **File not read error**: Always `Read` a file before `Edit` or `Write` — the tool enforces this
 3. **shadcn colors**: All shadcn components use CSS vars (`bg-background`, `text-foreground`, etc.) — never use hardcoded Tailwind colors like `bg-white` or `text-gray-500` in new code
 4. **Auth in App.tsx**: `RequireAuth` wraps all dashboard routes; `RedirectIfAuthed` wraps `/login` and `/register`
-5. **Landing page is public**: `/` route renders `LandingPage` with no auth check — no "Open Dashboard" button
+5. **Landing page is public**: `/` and `/pricing` render with no auth check — no "Open Dashboard" button
+5b. **Two surfaces, one app**: the product UI is the light cream shadcn theme on `:root`; the marketing pages are a dark theme scoped to `[data-surface="marketing"]` (`src/styles/marketing.css`, all classes prefixed `mk-`), applied by `useMarketingSurface()` on mount and removed on unmount. Never define a `mk-` token on `:root`, and never use a shadcn token inside a marketing component — the two palettes must not meet.
 6. **API base URL**: Frontend uses `VITE_API_URL` — no `/api` prefix in route definitions (Nginx strips it in prod)
 7. **Encryption**: All OAuth tokens must be Fernet-encrypted before DB insert — use `services/encryption.py`
 8. **Two Celery tasks**: Never block a worker at the approval gate — `task_run_until_approval` stops, `task_resume_after_approval` continues

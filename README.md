@@ -44,6 +44,28 @@ for a human decision — and an approval policy decides whether that decision is
 | Data Fetching | TanStack Query v5 |
 | Real-time | socket.io-client |
 | Forms | react-hook-form + zod |
+| Landing page | three.js + @react-three/fiber + postprocessing (lazy-loaded) |
+
+---
+
+## The public site
+
+`/` and `/pricing` are a separate marketing surface with its own dark theme, scoped
+to `[data-surface="marketing"]` so it never touches the product UI's palette.
+
+The hero renders the pipeline as a WebGL scene: five agent nodes on an orbital path,
+a work packet travelling between them, and the approval gate — where the packet
+visibly **stops** until it is released. It is the same state machine the orchestrator
+runs, and the status readout under the headline is driven by its phase events.
+
+The scene is a lazy chunk that only loads on a WebGL-capable device once the browser
+is idle, and stops rendering when the hero scrolls away. Reduced-motion visitors, and
+anyone without WebGL, get an SVG rendering of the same six slots instead.
+
+The **approval-gate section is interactive**: toggling a policy rule re-evaluates a
+sample run through a faithful client-side port of `policy_service.evaluate_deploy`,
+including the review score and the protected-path glob. What the page claims and what
+the server does are checkable against each other.
 
 ---
 
