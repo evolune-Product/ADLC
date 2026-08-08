@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
+from app.models.organization import OrgMember, SsoConnection
 from app.models.user import User
 from app.services import sso_service
 from app.services.encryption import decrypt_token
@@ -352,9 +353,8 @@ def github_callback(code: str, db: Session = Depends(get_db)):
 # uses the client secret. See services/sso_service.py.
 # ---------------------------------------------------------------------------
 
-def _sso_for_email(db: Session, email: str) -> "SsoConnection | None":
+def _sso_for_email(db: Session, email: str) -> SsoConnection | None:
     """The enabled connection that claims this address's domain, if any."""
-    from app.models.organization import SsoConnection
     domain = sso_service.domain_of(email or "")
     if not domain:
         return None
@@ -400,8 +400,6 @@ def sso_callback(
     error: str | None = None,
     error_description: str | None = None,
 ):
-    from app.models.organization import OrgMember, SsoConnection
-
     def fail(reason: str):
         return RedirectResponse(f"{settings.frontend_url}/login?error={reason}")
 

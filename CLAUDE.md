@@ -446,6 +446,34 @@ npm run dev        # starts Vite dev server on http://localhost:5173
 npm run build      # production build → dist/
 ```
 
+### Before you push — run what CI runs
+
+`.github/workflows/ci.yml` does five things the ordinary dev loop does not, and
+a green local `pytest` is **not** enough. Ruff caught a broken forward
+annotation that every other check ran straight past.
+
+```bash
+# Backend (needs a real Postgres — CI uses a service container)
+cd backend
+ruff check app tests --select E9,F63,F7,F82        # syntax + undefined names
+python -c "import app.main"                        # wiring and model errors
+alembic upgrade head                               # against a real Postgres
+alembic downgrade -1 && alembic upgrade head       # migrations must reverse
+pytest tests/ -q
+
+# Frontend
+cd frontend && npm run lint && npm run build
+```
+
+Two traps worth knowing:
+
+- **A string annotation is not an excuse to import inside the function.** Ruff's
+  F821 resolves `-> "Thing | None"` and fails if `Thing` is not importable at
+  module scope. Models never import routers, so a top-level import is almost
+  always fine — reach for `TYPE_CHECKING` only where there is a genuine cycle.
+- **Every migration must downgrade.** CI runs `downgrade -1 && upgrade head`, so
+  a `downgrade()` that is a stub fails the build.
+
 ### Docker (full stack)
 ```bash
 docker compose up -d           # start all services
