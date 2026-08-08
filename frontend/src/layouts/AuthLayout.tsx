@@ -1,6 +1,7 @@
 import { Outlet, Link } from 'react-router-dom'
 import { Check } from 'lucide-react'
 import { Atmosphere, AdlcMark } from '@/components/marketing/Chrome'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { useMarketingSurface } from '@/components/marketing/hooks'
 import { PLATFORM_FACTS } from '@/components/marketing/content'
 
@@ -98,16 +99,21 @@ export default function AuthLayout() {
             </div>
           </div>
 
-          <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-[var(--mk-hairline)] px-6 py-4">
+          <footer className="flex shrink-0 items-center justify-between gap-4 border-t border-[var(--mk-hairline)] px-6 py-3">
             <p className="text-[11.5px] text-[var(--mk-ink-3)]">
               The governed execution layer for AI software delivery.
             </p>
-            <Link
-              to="/pricing"
-              className="mk-mono shrink-0 text-[11px] uppercase tracking-[0.14em] text-[var(--mk-ink-3)] transition-colors hover:text-[var(--mk-ember-lit)]"
-            >
-              Pricing
-            </Link>
+            <div className="flex shrink-0 items-center gap-2">
+              <Link
+                to="/pricing"
+                className="mk-mono text-[11px] uppercase tracking-[0.14em] text-[var(--mk-ink-3)] transition-colors hover:text-[var(--mk-ember-lit)]"
+              >
+                Pricing
+              </Link>
+              {/* Sign-in is often the first page someone lands on from a
+                  bookmark, so the preference has to be reachable here too. */}
+              <ThemeToggle surface="marketing" />
+            </div>
           </footer>
         </main>
       </div>

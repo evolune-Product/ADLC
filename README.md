@@ -50,8 +50,8 @@ for a human decision — and an approval policy decides whether that decision is
 
 ## The public site
 
-`/` and `/pricing` are a separate marketing surface with its own dark theme, scoped
-to `[data-surface="marketing"]` so it never touches the product UI's palette.
+`/`, `/pricing` and `/security` are a separate marketing surface with its own theme,
+scoped to `[data-surface="marketing"]` so it never touches the product UI's palette.
 
 The hero renders the run as a **git graph** in WebGL: `main` runs left to right, a
 feature branch is cut from it and gathers a commit as each agent finishes, and the
@@ -61,9 +61,22 @@ prod. It is the same state machine the orchestrator runs, and the status readout
 the headline is driven by its phase events.
 
 Sign-in and sign-up share that surface. The product UI behind them deliberately does
-not: it is a work tool, so it stays light and calm, and carries the brand through
-typography — the same display face on headings, the same mono face on every measured
-number — rather than through atmosphere.
+not carry its atmosphere: it is a work tool, so it stays calm, and carries the brand
+through typography — the same display face on headings, the same mono face on every
+measured number.
+
+**Light and dark, everywhere.** One preference — light, dark or system, defaulting to
+system and following the OS live — is stored once and honoured on both surfaces, with
+a toggle in the marketing nav, the auth footer, the dashboard topbar and Settings. An
+inline script in `index.html` stamps the theme onto `<html>` before the first paint, so
+there is no flash of the wrong palette. The light marketing theme is a redesign rather
+than an inversion: every colour role is re-solved for AA contrast on the cream ground,
+and the effects that only mean something against near-black — bloom, additive blending,
+the receding ground grid — are switched off rather than washed out.
+
+`/security` states the platform's posture item by item, each one naming the file it
+lives in, and lists what is **not** in place — no SOC 2, no SSO, no penetration test —
+in the same type as everything else.
 
 The scene is a lazy chunk that only loads on a WebGL-capable device once the browser
 is idle, and stops rendering when the hero scrolls away. Reduced-motion visitors, and

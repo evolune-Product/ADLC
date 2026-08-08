@@ -12,6 +12,7 @@ import {
 } from '@/components/marketing/sections/Pricing'
 import { Faq } from '@/components/marketing/sections/Faq'
 import { ClosingCta } from '@/components/marketing/sections/ClosingCta'
+import { Seo } from '@/components/Seo'
 
 /**
  * Pricing in full: the four plans, why the numbers are what they are, a
@@ -39,6 +40,11 @@ export default function PricingPage() {
 
   return (
     <div className="mk-root relative min-h-screen bg-[var(--mk-ground)] text-[var(--mk-ink)]">
+      <Seo
+        title="Pricing — ADLC"
+        description="Free forever on your own model key. Team $199/mo, Growth $699/mo, Enterprise from $3,500. Runs are the meter, seats are the governance — and every run has an enforced budget cap."
+        path="/pricing"
+      />
       <Atmosphere />
       <MarketingNav />
 

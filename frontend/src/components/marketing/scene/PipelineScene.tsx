@@ -59,8 +59,20 @@ export function PipelineScene({
         antialias: false,
         alpha: true,
         powerPreference: 'high-performance',
-        toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 1.12,
+        /*
+          Tone mapping only on the dark theme.
+
+          ACES exists here to keep the bloom's highlights from clipping. The
+          light theme has no bloom, and applying it there actively hurt: the
+          fog colour is the page's own cream, so any curve applied to it makes
+          the fogged-out far end of the grid render as a *different* cream from
+          the CSS background behind the canvas — which showed up as a bright
+          horizontal band across the middle of the hero where the grid's
+          horizon is. Passing the colour through untouched makes the horizon
+          dissolve into the page exactly as intended.
+        */
+        toneMapping: palette.bloomIntensity > 0 ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping,
+        toneMappingExposure: palette.bloomIntensity > 0 ? 1.12 : 1,
       }}
       // Position is solved by the Rig from the graph's bounding box; this is
       // only the first frame's guess, before it settles.
@@ -85,9 +97,13 @@ export function PipelineScene({
 
       <Rig pointer={pointer} strength={isCoarse ? 0.35 : 1} vertical={isSmall} />
 
+      {/* Bloom is skipped entirely on the light theme rather than turned down.
+          A luminance threshold of 0.18 against a cream ground selects the
+          *background* — the whole frame blooms and the picture goes to milk.
+          The vignette alone still seats the scene in the page. */}
       {isSmall ? (
         <></>
-      ) : (
+      ) : palette.bloomIntensity > 0 ? (
         <EffectComposer multisampling={0}>
           <Bloom
             intensity={palette.bloomIntensity}
@@ -96,7 +112,11 @@ export function PipelineScene({
             kernelSize={KernelSize.LARGE}
             mipmapBlur
           />
-          <Vignette offset={0.34} darkness={0.55} />
+          <Vignette offset={0.34} darkness={palette.vignetteDarkness} />
+        </EffectComposer>
+      ) : (
+        <EffectComposer multisampling={0}>
+          <Vignette offset={0.42} darkness={palette.vignetteDarkness} />
         </EffectComposer>
       )}
     </Canvas>

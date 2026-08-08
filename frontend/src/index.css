@@ -30,26 +30,36 @@
     --onto-accent:       #E8632A;
   }
 
+  /* Dark product UI.
+     Applied by src/lib/theme.tsx, which puts `.dark` on <html> — Tailwind is
+     configured darkMode: ['class'].
+
+     These were neutral greys and nothing ever rendered them. They are now the
+     same warm-biased blacks the marketing surface is built from, lifted a step:
+     a hero page can sit at #08070a, but a tool you read tables in for eight
+     hours needs more separation between ground, card and border than that
+     leaves room for. Contrast against --foreground is ≥ 13:1 on the ground and
+     ≥ 11:1 on cards. */
   .dark {
-    --background:        0 0% 6%;
-    --foreground:        36 20% 93%;
-    --card:              0 0% 9%;
-    --card-foreground:   36 20% 93%;
-    --popover:           0 0% 9%;
-    --popover-foreground: 36 20% 93%;
-    --primary:           36 20% 93%;
-    --primary-foreground: 0 0% 6%;
-    --secondary:         0 0% 13%;
-    --secondary-foreground: 36 20% 93%;
-    --muted:             0 0% 13%;
-    --muted-foreground:  0 0% 55%;
-    --accent:            0 0% 13%;
-    --accent-foreground: 36 20% 93%;
-    --destructive:       0 62% 40%;
-    --destructive-foreground: 0 0% 98%;
-    --border:            0 0% 15%;
-    --input:             0 0% 15%;
-    --ring:              36 20% 85%;
+    --background:        265 14% 6%;    /* #0E0C11 */
+    --foreground:        36 43% 93%;    /* #F5EFE6 — the same cream, as ink */
+    --card:              262 14% 9%;    /* #17141B */
+    --card-foreground:   36 43% 93%;
+    --popover:           262 14% 9%;
+    --popover-foreground: 36 43% 93%;
+    --primary:           36 43% 93%;    /* cream buttons — bg-foreground pattern */
+    --primary-foreground: 265 14% 6%;
+    --secondary:         262 13% 13%;
+    --secondary-foreground: 36 43% 93%;
+    --muted:             262 13% 13%;
+    --muted-foreground:  28 8% 63%;     /* #A8A099 — 7.4:1 on the ground */
+    --accent:            262 13% 13%;
+    --accent-foreground: 36 43% 93%;
+    --destructive:       357 86% 64%;
+    --destructive-foreground: 265 14% 6%;
+    --border:            262 14% 17%;
+    --input:             262 14% 17%;
+    --ring:              18 81% 54%;    /* ember, so focus is a brand moment */
   }
 }
 
@@ -95,14 +105,73 @@
 
 /* ─── onto design utilities ───────────────────────────────────────────────── */
 
-/* Section label — "01 — TITLE" style */
+/* Section label — "01 — TITLE" style.
+   Token-driven rather than the hardcoded #8a8378 it used to be, so it follows
+   the theme instead of turning into a muddy stripe on a dark ground. */
 .onto-label {
   font-size: 0.65rem;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #8a8378;
+  color: hsl(var(--muted-foreground));
 }
+
+/* ─── Status-tint remap for dark mode ────────────────────────────────────────
+   The product marks state with Tailwind's light tints — `bg-red-50
+   text-red-700` and friends — in about fifty places across twelve files.
+   Those are correct on cream and wrong on a dark ground: a -50 fill becomes a
+   glowing pastel block, and a -700 label on it is the only dark text on the
+   page.
+
+   Remapping the handful of utilities actually in use is a far better trade
+   than either rewriting fifty call sites into a new token vocabulary or
+   shipping a dark mode with neon badges in it. Tints become low-alpha washes
+   of their own hue; labels move to the light end of the same ramp. The hue
+   still carries the meaning, which is the only thing those classes were ever
+   for.
+
+   Keep this list in step with the codebase — `grep -ro "bg-[a-z]*-[0-9]*"`
+   finds anything new. Solid -400/-500/-600 fills are deliberately absent:
+   those are dots and buttons, and they read correctly on both grounds. */
+
+.dark .bg-red-50,
+.dark .bg-red-100    { background-color: rgba(248, 113, 113, 0.14); }
+.dark .bg-green-50,
+.dark .bg-green-100  { background-color: rgba(74, 222, 128, 0.14); }
+.dark .bg-yellow-50,
+.dark .bg-yellow-100 { background-color: rgba(250, 204, 21, 0.14); }
+.dark .bg-blue-50,
+.dark .bg-blue-100   { background-color: rgba(96, 165, 250, 0.14); }
+.dark .bg-purple-100 { background-color: rgba(192, 132, 252, 0.14); }
+.dark .bg-indigo-100 { background-color: rgba(129, 140, 248, 0.14); }
+.dark .bg-orange-100 { background-color: rgba(251, 146, 60, 0.14); }
+.dark .bg-pink-100   { background-color: rgba(244, 114, 182, 0.14); }
+.dark .bg-teal-100   { background-color: rgba(45, 212, 191, 0.14); }
+.dark .bg-gray-100   { background-color: hsl(var(--muted)); }
+
+.dark .text-red-600,
+.dark .text-red-700,
+.dark .text-red-800       { color: #fca5a5; }
+.dark .text-green-600,
+.dark .text-green-700,
+.dark .text-green-800     { color: #86efac; }
+.dark .text-emerald-600   { color: #6ee7b7; }
+.dark .text-yellow-700,
+.dark .text-yellow-800    { color: #fde047; }
+.dark .text-blue-600,
+.dark .text-blue-700      { color: #93c5fd; }
+.dark .text-purple-700    { color: #d8b4fe; }
+.dark .text-indigo-700    { color: #a5b4fc; }
+.dark .text-orange-700    { color: #fdba74; }
+.dark .text-pink-700      { color: #f9a8d4; }
+.dark .text-teal-700      { color: #5eead4; }
+.dark .text-gray-600,
+.dark .text-gray-700      { color: hsl(var(--muted-foreground)); }
+
+.dark .border-red-200,
+.dark .border-red-300    { border-color: rgba(248, 113, 113, 0.32); }
+.dark .border-green-200  { border-color: rgba(74, 222, 128, 0.32); }
+.dark .border-yellow-200 { border-color: rgba(250, 204, 21, 0.32); }
 
 /* Status badge variants */
 .status-badge {

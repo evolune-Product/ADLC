@@ -20,6 +20,16 @@ const FALLBACK = {
   '--mk-hairline-lit': '#342d3d',
   '--mk-pass': '#4ade80',
   '--mk-hold': '#f2545b',
+
+  /* Numeric, and in the stylesheet for the same reason the colours are: the
+     scene's exposure is part of the theme, not a constant. Bloom and additive
+     blending only mean anything against a dark ground — see marketing.css. */
+  '--mk-scene-fog': '0.026',
+  '--mk-scene-ambient': '0.6',
+  '--mk-scene-bloom': '1.1',
+  '--mk-scene-vignette': '0.55',
+  '--mk-scene-grid-opacity': '0.2',
+  '--mk-scene-additive': '1',
 } as const
 
 type Token = keyof typeof FALLBACK
@@ -30,6 +40,11 @@ export function scenePalette() {
   if (typeof document !== 'undefined') {
     const computed = getComputedStyle(document.documentElement)
     read = (token) => computed.getPropertyValue(token).trim() || FALLBACK[token]
+  }
+
+  const num = (token: Token) => {
+    const parsed = Number.parseFloat(read(token))
+    return Number.isFinite(parsed) ? parsed : Number.parseFloat(FALLBACK[token])
   }
 
   return {
@@ -54,8 +69,21 @@ export function scenePalette() {
     gatePass: read('--mk-pass'),
     gateIdle: read('--mk-ember-lit'),
 
-    fogDensity: 0.026,
-    ambient: 0.6,
-    bloomIntensity: 1.1,
+    fogDensity: num('--mk-scene-fog'),
+    ambient: num('--mk-scene-ambient'),
+    /** Zero means "do not mount the post chain at all", not "bloom softly". */
+    bloomIntensity: num('--mk-scene-bloom'),
+    vignetteDarkness: num('--mk-scene-vignette'),
+    gridOpacity: num('--mk-scene-grid-opacity'),
+    /**
+     * Whether emissive elements — the HEAD halo, the gate membrane — should add
+     * their light to what is behind them.
+     *
+     * On the dark ground that is what makes them glow. On the light one there
+     * is nothing left to add to: additive blending against near-white clips to
+     * white and the element simply disappears. Those meshes switch to normal
+     * blending and carry their weight with opacity instead.
+     */
+    additive: num('--mk-scene-additive') > 0.5,
   }
 }

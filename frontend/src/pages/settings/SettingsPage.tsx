@@ -3,6 +3,7 @@ import { CheckCircle2, XCircle, Key } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ThemeChoices } from '@/components/ThemeToggle'
 import { useSettings, useUpdateProfile } from '@/hooks/useSettings'
 
 export default function SettingsPage() {
@@ -39,6 +40,20 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage your profile and platform configuration.</p>
       </div>
+
+      {/* Appearance */}
+      <section className="space-y-4">
+        <h2 className="text-base font-semibold border-b pb-2">Appearance</h2>
+        <div className="space-y-2">
+          <Label>Colour theme</Label>
+          <ThemeChoices />
+          <p className="text-xs text-muted-foreground">
+            Applies to the whole product and to the public site. <strong>System</strong> follows your
+            operating system and changes with it during the day. The preference is stored in this
+            browser.
+          </p>
+        </div>
+      </section>
 
       {/* Profile */}
       <section className="space-y-4">

@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { StaticPipeline } from './StaticPipeline'
 import type { PipelinePhase, ProjectFn } from './pipelineTimeline'
 import { useReducedMotion } from '../hooks'
+import { useTheme } from '@/lib/theme'
 
 // ~500 kB of three plus the post-processing chain never reaches a visitor who
 // cannot use it, and never blocks the ones who can — see the boot sequence
@@ -51,6 +52,7 @@ export function PipelineCanvas({
   onProject?: ProjectFn
 }) {
   const reduced = useReducedMotion()
+  const { resolved: theme } = useTheme()
   const [webgl, setWebgl] = useState<boolean | null>(null)
   const [active, setActive] = useState(true)
   const [booted, setBooted] = useState(false)
@@ -120,7 +122,18 @@ export function PipelineCanvas({
 
       {showScene ? (
         <Suspense fallback={null}>
-          <div className="mk-animate-fade-in absolute inset-0">
+          {/*
+            Keyed on the theme, so switching it rebuilds the scene from scratch.
+
+            The palette is read from CSS custom properties once, at mount, and
+            then baked into three.js Color instances, material blend modes and
+            the post-processing chain. Several of those cannot be changed on a
+            live material without a manual `needsUpdate` dance, and a half-
+            updated scene — new colours, old blending — looks worse than either
+            theme. A full remount costs one WebGL context recreation on a rare,
+            deliberate user action, and is simply correct.
+          */}
+          <div key={theme} className="mk-animate-fade-in absolute inset-0">
             <PipelineScene active={active} onPhase={onPhase} onProject={onProject} />
           </div>
         </Suspense>

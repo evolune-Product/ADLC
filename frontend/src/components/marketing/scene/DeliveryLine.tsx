@@ -371,7 +371,7 @@ export function DeliveryLine({
             transparent
             depthWrite={false}
             side={THREE.DoubleSide}
-            blending={THREE.AdditiveBlending}
+            blending={palette.additive ? THREE.AdditiveBlending : THREE.NormalBlending}
           />
         </mesh>
 
@@ -405,15 +405,18 @@ export function DeliveryLine({
           <sphereGeometry args={[0.062, 20, 20]} />
           <meshBasicMaterial color={palette.packet} toneMapped={false} />
         </mesh>
-        <mesh scale={2.8}>
+        {/* HEAD's halo. On the dark theme it is added light; on the light one
+            the same shell drawn normally at a lower opacity reads as the soft
+            edge of a cast shadow, which is the daylight equivalent of a glow. */}
+        <mesh scale={palette.additive ? 2.8 : 2.2}>
           <sphereGeometry args={[0.062, 20, 20]} />
           <meshBasicMaterial
             color={palette.packet}
             transparent
-            opacity={0.22}
+            opacity={palette.additive ? 0.22 : 0.13}
             side={THREE.BackSide}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            blending={palette.additive ? THREE.AdditiveBlending : THREE.NormalBlending}
           />
         </mesh>
       </group>

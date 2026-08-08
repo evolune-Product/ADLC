@@ -160,6 +160,8 @@ Observe      Audit Log · Settings
 ```
 /                    → LandingPage (public, always — no auth redirect)
 /pricing             → PricingPage (public — plans, comparison, FAQ)
+/security            → SecurityPage (public — posture, including what is NOT built)
+*                    → NotFoundPage (public 404; was a redirect to /dashboard)
 /login               → LoginPage   (redirects to /dashboard if already authed)
 /register            → RegisterPage
 /dashboard           → DashboardPage         ┐
@@ -514,13 +516,43 @@ a policy violation returns the run to `awaiting_approval` rather than failing it
 
 ---
 
-## Marketing Surface (`/` and `/pricing`)
+## Theming (`light` / `dark` / `system`)
+
+One preference for the whole product, honoured on both surfaces. Default is
+`system` and it follows the OS live.
+
+```
+index.html                            ← inline boot script: reads localStorage
+                                        'adlc-theme', stamps <html> before first
+                                        paint. MUST stay inline and in <head>.
+src/lib/theme.ts                      ← types, storage key, applyTheme,
+                                        ThemeContext, useTheme
+src/components/ThemeProvider.tsx      ← the provider (mounted in main.tsx,
+                                        OUTSIDE the router)
+src/components/ThemeToggle.tsx        ← ThemeToggle (cycling icon button) and
+                                        ThemeChoices (segmented, for Settings)
+```
+
+`applyTheme` writes three things to `<html>`, and all three are load-bearing:
+`data-theme` (what `mk-*` tokens key off), the `.dark` class (what Tailwind's
+`darkMode: ['class']` keys off), and `style.colorScheme` (what the browser keys
+off, for form controls and scrollbars).
+
+Where the toggle lives: marketing nav (desktop + mobile), auth footer, dashboard
+topbar, and Settings → Appearance.
+
+## Marketing Surface (`/`, `/pricing`, `/security`)
 
 A public, WebGL-driven marketing site, deliberately separate from the product UI.
 
 ```
-src/styles/marketing.css              ← dark "foundry" theme, all tokens under
-                                        [data-surface="marketing"], classes `mk-*`
+src/styles/marketing.css              ← "foundry" theme, all tokens under
+                                        [data-surface="marketing"], classes `mk-*`;
+                                        light variant under [data-theme="light"]
+src/components/Seo.tsx                ← per-route title/description/canonical/OG
+                                        + page-level JSON-LD, restores on unmount
+public/robots.txt · public/sitemap.xml · public/og.png
+scripts/og.mjs · scripts/og-card.html ← regenerate the social card
 src/components/marketing/
   content.ts                          ← ALL copy, pricing and cited figures
   hooks.ts                            ← useMarketingSurface, useReducedMotion,
@@ -537,8 +569,8 @@ src/components/marketing/
     GridField.tsx · Rig.tsx · shaders.ts · palette.ts
     StaticPipeline.tsx                ← SVG fallback (reduced motion / no WebGL)
   sections/                           ← Hero, Problem, HowItWorks, TheGate,
-                                        Platform, Pricing, Trust, Faq,
-                                        Interstitial, ClosingCta
+                                        Platform, Positioning, Pricing, Trust,
+                                        Faq, Interstitial, ClosingCta
 ```
 
 Rules that matter:
@@ -569,6 +601,22 @@ Rules that matter:
    name is not doing its job.
 5. **Fonts are bundled** (`@fontsource-variable/*`), not fetched from a CDN — this
    platform is meant to run air-gapped.
+8. **The light theme is a redesign, not an inversion.** Every colour role is
+   re-solved against the cream ground for AA contrast (`--mk-ember` stays the
+   brand value for *fills*; `--mk-ember-lit` is the legible value type uses, and
+   it is *darker* in light and *lighter* in dark). Three things are switched off
+   in light because they are all "add light to a dark thing" and only produce
+   grey on cream: **bloom**, **additive blending**, and **the ground grid** —
+   the grid's horizon accumulates alpha on a transparent canvas and paints
+   brighter than the page. Tone mapping is off in light too, so the fog colour
+   composites exactly against the CSS ground.
+9. **`SECURITY_POSTURE` lists what is *not* built alongside what is.** No SOC 2,
+   no SSO, no pen test. If one of those ships, move it — do not quietly delete
+   the row.
+10. **`POSITIONING` compares design intent, never quality.** It names Copilot,
+   Cursor, Claude Code, Devin and Factory. No benchmark is implied and the
+   disclaimer under the table says so. Do not add a row that claims ADLC is
+   faster or better at anything measurable.
 
 ## What Still Isn't Built (Phase 12+)
 
@@ -593,7 +641,8 @@ Rules that matter:
 5. **Landing page is public**: `/` and `/pricing` render with no auth check — no "Open Dashboard" button
 5b. **Two surfaces, one app**: the product UI is the light cream shadcn theme on `:root`; the marketing pages are a dark theme scoped to `[data-surface="marketing"]` (`src/styles/marketing.css`, all classes prefixed `mk-`), applied by `useMarketingSurface()` on mount and removed on unmount. Never define a `mk-` token on `:root`, and never use a shadcn token inside a marketing component — the two palettes must not meet.
 5c. **Auth belongs to marketing**: `AuthLayout` is on the marketing surface and carries `.mk-auth`, which **redefines the shadcn tokens** (`--background`, `--card`, `--border`, …) for that subtree. The login/register markup is unchanged and simply resolves dark; new auth pages inherit it for free.
-5d. **The app stays light on purpose.** It is a work tool — dense tables, audit logs, long sessions. Do not port the marketing grain/bloom/dark ground into it. Brand continuity comes from *type*, not atmosphere: `AdlcMark` + the name "ADLC" everywhere, `.app-display` (Archivo) on headings, `.app-metric` (JetBrains Mono, tabular) on every measured number.
+5d. **The app has a real dark mode now, and it is still not the marketing surface.** `.dark` in `index.css` is the product's dark token set — warm-biased blacks, lifted a step from the hero page's #08070a because tables need more separation between ground, card and border. Do not port the marketing grain/bloom/atmosphere into it. Brand continuity comes from *type*, not atmosphere: `AdlcMark` + the name "ADLC" everywhere, `.app-display` (Archivo) on headings, `.app-metric` (JetBrains Mono, tabular) on every measured number.
+5e. **Status tints are remapped, not rewritten.** ~50 uses of Tailwind's `bg-red-50 text-red-700`-style pills across 12 files would be neon on a dark ground. `index.css` remaps exactly the utilities in use under `.dark` to low-alpha washes of the same hue. If you add a new tint class, add it to that list — `grep -ro "bg-[a-z]*-[0-9]*"` finds strays.
 6. **API base URL**: Frontend uses `VITE_API_URL` — no `/api` prefix in route definitions (Nginx strips it in prod)
 7. **Encryption**: All OAuth tokens must be Fernet-encrypted before DB insert — use `services/encryption.py`
 8. **Two Celery tasks**: Never block a worker at the approval gate — `task_run_until_approval` stops, `task_resume_after_approval` continues

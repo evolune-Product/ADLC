@@ -111,7 +111,7 @@ export function PricingSection() {
     <section className="mk-section" id="pricing">
       <div className="mk-shell">
         <div className="max-w-3xl">
-          <Eyebrow n="05">Pricing</Eyebrow>
+          <Eyebrow n="06">Pricing</Eyebrow>
           <SplitHeading
             text="Pay for runs. Buy seats for governance."
             highlight={['governance.']}

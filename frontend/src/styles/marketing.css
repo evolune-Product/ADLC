@@ -19,6 +19,18 @@
    shadcn token set on :root. None of that is touched here. These tokens live
    under [data-surface="marketing"] on <html>, which useMarketingSurface() adds
    on mount and removes on unmount, so the two never see each other.
+
+   THEMING
+   The block below is the *dark* surface and it is the design's reference: the
+   proportions, the contrast ratios and the WebGL scene were all judged against
+   it. A light variant follows, keyed on [data-theme='light'] (put there by the
+   boot script in index.html and by src/lib/theme.tsx).
+
+   That variant is a redesign, not an inversion. Flipping a near-black ground to
+   white and leaving everything else alone produces glare, dead glows and
+   unreadable orange — so the light surface re-solves each role from scratch
+   against a cream ground, and keeps the token *names* so every component,
+   the SVG diagram and the three.js palette all follow without edits.
    ========================================================================== */
 
 [data-surface='marketing'] {
@@ -76,9 +88,20 @@
   --mk-hero-scrim-mid: rgba(8, 7, 10, 0.46);
   --mk-hero-scrim-out: rgba(8, 7, 10, 0);
 
-  /* Read by the WebGL scene, so the canvas is lit by the same tokens as the
-     stylesheet rather than a second hardcoded palette. */
+  /* --- Scene -------------------------------------------------------------
+     Read by the WebGL scene, so the canvas is lit by the same tokens as the
+     stylesheet rather than a second hardcoded palette — including the numeric
+     ones. Bloom and additive blending are only correct against a dark ground:
+     added light on an already-bright surface has nowhere to go, so it shows as
+     a grey wash instead of a glow. The light theme turns both off (below) and
+     the scene reads as a drafting table instead of a lit workshop. */
   --mk-scene-bg: #08070a;
+  --mk-scene-fog: 0.026;
+  --mk-scene-ambient: 0.6;
+  --mk-scene-bloom: 1.1;
+  --mk-scene-vignette: 0.55;
+  --mk-scene-grid-opacity: 0.2;
+  --mk-scene-additive: 1;
 
   /* --- Type ---------------------------------------------------------------
      Archivo carries a width axis; opened to 112 and set heavy it reads as
@@ -101,6 +124,119 @@
   --mk-measure: 1240px;
 
   background-color: var(--mk-ground);
+}
+
+/* ============================================================================
+   MARKETING — LIGHT
+   ----------------------------------------------------------------------------
+   "The drafting table." Same shop, same ember, daylight instead of one lamp.
+
+   Three rules kept the redesign honest rather than mechanical:
+
+   1. **The ground is the product's own cream.** Not white. It is the exact
+      family the dashboard is built in, so switching to light makes the two
+      surfaces look like one product rather than like a page that lost its
+      styling.
+   2. **Orange is re-solved for legibility, not reused.** #E8632A measures
+      3.6:1 on cream and fails AA as body text, so `--mk-ember` stays the brand
+      value for *fills* and `--mk-ember-lit` becomes the darkened value type
+      uses — the same split as the dark theme, in the opposite direction. Every
+      ink and semantic value below is ≥ 4.5:1 on the ground.
+   3. **Glow is not a colour you can have here.** Bloom, additive blending and
+      the ember box-shadow are all "add light to a dark thing". On cream they
+      only make grey. They are turned down or off, and the weight that carried
+      is taken over by hairlines and shadow.
+   ========================================================================== */
+
+[data-surface='marketing'][data-theme='light'] {
+  color-scheme: light;
+
+  --mk-ground: #f4eee4;
+  --mk-ground-2: #eee7db;
+  --mk-panel: #ffffff;
+  --mk-panel-2: #faf6ef;
+  --mk-hairline: #e3dacb;
+  --mk-hairline-lit: #c9bda9;
+
+  --mk-ink: #14110e;
+  --mk-ink-2: #4f4941; /* 7.4:1 on the ground */
+  --mk-ink-3: #6d655a; /* 4.9:1 — AA at caption sizes, same job as in dark */
+
+  --mk-ember: #e8632a; /* brand value — fills, 3D emissives, never small type */
+  --mk-ember-lit: #a83d0c; /* 5.4:1 — every orange word on the page */
+  --mk-ember-deep: #f7d3bf;
+  --mk-amber: #8f5a06; /* 4.9:1 */
+
+  --mk-pass: #12703a; /* 5.5:1 */
+  --mk-hold: #c02a26; /* 5.0:1 */
+
+  --mk-glass-top: rgba(255, 255, 255, 0.82);
+  --mk-glass-bottom: rgba(250, 246, 239, 0.66);
+  --mk-glass-border: rgba(232, 99, 42, 0.2);
+  --mk-glass-highlight: rgba(255, 255, 255, 0.9);
+  --mk-glass-shadow: 0 20px 46px -24px rgba(72, 52, 32, 0.32);
+
+  --mk-wash-1: rgba(32, 22, 12, 0.03);
+  --mk-wash-2: rgba(32, 22, 12, 0.05);
+  --mk-wash-3: rgba(32, 22, 12, 0.08);
+
+  --mk-glow-ember: rgba(232, 99, 42, 0.34);
+  --mk-glow-ember-soft: rgba(232, 99, 42, 0.16);
+  --mk-vignette: rgba(122, 98, 66, 0.16);
+  --mk-grain: 0.022;
+  --mk-ground-glow: rgba(232, 99, 42, 0.09);
+  --mk-hero-scrim-in: rgba(244, 238, 228, 0.76);
+  --mk-hero-scrim-mid: rgba(244, 238, 228, 0.48);
+  --mk-hero-scrim-out: rgba(244, 238, 228, 0);
+
+  --mk-scene-bg: #f4eee4;
+  --mk-scene-fog: 0.03;
+  --mk-scene-ambient: 1;
+  --mk-scene-bloom: 0;
+  --mk-scene-vignette: 0.16;
+  --mk-scene-additive: 0;
+
+  /*
+     No ground plane in daylight.
+
+     The dark theme's receding grid is a real element — it is what makes the
+     scene read as a bench rather than as space. It cannot survive here. Its
+     far rows compress into a solid mass at the horizon, and because the canvas
+     is transparent and composited by the browser, that mass accumulates alpha
+     and paints *brighter* than the page behind it: a milky band straight
+     across the middle of the hero. Fogging it sooner, drawing it fainter and
+     matching the fog to the ground colour all failed to remove it, because the
+     artefact is in the compositing, not the colour.
+
+     Removing it turns out to be the better drawing anyway. On paper you do not
+     draw the ground the diagram is standing on. The motes stay, so the camera
+     parallax still has something near it to work against.
+  */
+  --mk-scene-grid-opacity: 0;
+}
+
+/* The one gradient phrase per screen. In dark it runs cream → amber → ember,
+   which is a lamp getting hotter. Inverted onto cream, the amber stop lands as
+   olive-brown and the phrase reads dirty rather than lit — so light runs
+   ink → the legible ember → the brand ember instead: a burn, not a bruise. */
+[data-theme='light'] .mk-lit {
+  /* `background-image`, not the `background` shorthand: the shorthand resets
+     background-clip back to border-box, and the phrase paints as a solid
+     gradient block over the type instead of through it. */
+  background-image: linear-gradient(
+    96deg,
+    var(--mk-ink) 0%,
+    var(--mk-ember-lit) 46%,
+    var(--mk-ember) 100%
+  );
+}
+
+/* On cream, the ember shadow is a smudge rather than a glow. Keep the ring,
+   drop the bloom. */
+[data-theme='light'] .mk-glow-ember {
+  box-shadow:
+    0 0 0 1px rgba(232, 99, 42, 0.3),
+    0 8px 20px -8px var(--mk-glow-ember);
 }
 
 [data-surface='marketing'] body {
@@ -274,9 +410,20 @@
 
    Values are the HSL equivalents of the `--mk-*` tokens above; shadcn wraps
    them in hsl(), so they must stay bare triplets.
+
+   Only the dark half needs the full override. In light, `:root` already hands
+   these components the cream product palette, which is exactly what the light
+   marketing surface is built on — so all that is left to say is that the
+   primary action is ember, not black.
    ========================================================================== */
 
-.mk-auth {
+[data-theme='light'] .mk-auth {
+  --primary: 18 81% 54%; /* --mk-ember */
+  --primary-foreground: 20 60% 5%;
+  --ring: 18 81% 54%;
+}
+
+[data-theme='dark'] .mk-auth {
   --background: 260 18% 3%; /* --mk-ground */
   --foreground: 36 43% 93%; /* --mk-ink */
   --card: 260 16% 7%; /* --mk-panel */

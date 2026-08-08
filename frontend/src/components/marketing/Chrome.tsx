@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { ArrowRight, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { MkButton } from './ui'
 
 /** Grain and vignette over the whole surface. Purely optical — it sits above
@@ -89,7 +90,8 @@ export function MarketingNav() {
           )}
         </nav>
 
-        <div className="ml-auto hidden shrink-0 items-center gap-4 md:flex">
+        <div className="ml-auto hidden shrink-0 items-center gap-3 md:flex">
+          <ThemeToggle surface="marketing" />
           <Link
             to="/login"
             className="text-sm text-[var(--mk-ink-2)] transition-colors hover:text-[var(--mk-ink)]"
@@ -101,12 +103,19 @@ export function MarketingNav() {
           </MkButton>
         </div>
 
+        {/* On a phone the toggle stays outside the menu — it is a preference, not
+            a destination, and burying it behind a hamburger is how people
+            conclude a site has no light mode. */}
+        <div className="ml-auto md:hidden">
+          <ThemeToggle surface="marketing" />
+        </div>
+
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
           aria-label={open ? 'Close menu' : 'Open menu'}
-          className="ml-auto rounded p-2 text-[var(--mk-ink-2)] transition-colors hover:text-[var(--mk-ink)] md:hidden"
+          className="rounded p-2 text-[var(--mk-ink-2)] transition-colors hover:text-[var(--mk-ink)] md:hidden"
         >
           {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
@@ -158,8 +167,8 @@ const FOOTER_GROUPS = [
     links: [
       { label: 'Model providers', to: '/#models' },
       { label: 'Integrations', to: '/#integrations' },
-      { label: 'Security posture', to: '/#trust' },
-      { label: 'Questions', to: '/pricing#faq' },
+      { label: 'Security & data', to: '/security' },
+      { label: 'Questions', to: '/#faq' },
     ],
   },
   {

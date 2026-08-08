@@ -41,7 +41,7 @@ export function Trust() {
     <section className="mk-section" id="trust">
       <div className="mk-shell">
         <div className="max-w-3xl">
-          <Eyebrow n="06">Security &amp; honesty</Eyebrow>
+          <Eyebrow n="07">Security &amp; honesty</Eyebrow>
           <SplitHeading
             text="A governance product that oversells itself has already failed."
             highlight={['failed.']}

@@ -53,11 +53,15 @@ const LABEL_STYLE = {
 export function StaticPipeline() {
   return (
     <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+      {/* Two soft washes standing in for the WebGL scene's lighting. Kept at a
+          low alpha of the ember and pass hues rather than a flat tint, so the
+          same values sit correctly on both the near-black and the cream
+          ground. */}
       <div
         className="absolute inset-0"
         style={{
           background:
-            'radial-gradient(52% 62% at 40% 55%, rgba(232, 99, 42, 0.12) 0%, transparent 72%), radial-gradient(30% 46% at 74% 58%, rgba(74, 222, 128, 0.05) 0%, transparent 74%)',
+            'radial-gradient(52% 62% at 40% 55%, var(--mk-glow-ember-soft) 0%, transparent 72%), radial-gradient(30% 46% at 74% 58%, color-mix(in srgb, var(--mk-pass) 8%, transparent) 0%, transparent 74%)',
         }}
       />
 

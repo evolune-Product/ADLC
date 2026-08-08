@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useOrgStore } from '@/stores/orgStore'
 import OrgSwitcher from '@/components/org/OrgSwitcher'
 import NotificationBell from '@/components/notifications/NotificationBell'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { AdlcMark } from '@/components/marketing/Chrome'
 
 const NAV = [
@@ -110,7 +111,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                     'flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors',
                     isActive
                       ? 'bg-foreground text-background font-medium'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-black/5',
+                      : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5',
                   )
                 }
               >
@@ -126,7 +127,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                       'flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors',
                       isActive
                         ? 'bg-foreground text-background font-medium'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-black/5',
+                        : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5',
                     )
                   }
                 >
@@ -153,7 +154,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                       'flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors',
                       isActive
                         ? 'bg-foreground text-background font-medium'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-black/5',
+                        : 'text-muted-foreground hover:text-foreground hover:bg-foreground/5',
                     )
                   }
                 >
@@ -179,7 +180,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-black/5 transition-colors"
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors"
         >
           <LogOut className="h-3.5 w-3.5" />
           Sign out
@@ -202,8 +203,12 @@ function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
         <Menu className="h-4 w-4" />
       </button>
       <span className="lg:hidden app-display text-sm text-foreground">ADLC</span>
-      {/* The approval gate is worthless if the reviewer never hears about it. */}
-      <div className="ml-auto">
+      <div className="ml-auto flex items-center gap-1">
+        {/* Reachable from every page in the product, not only from Settings —
+            this is the kind of preference people change because of the room
+            they are sitting in, not because they went looking for it. */}
+        <ThemeToggle />
+        {/* The approval gate is worthless if the reviewer never hears about it. */}
         <NotificationBell />
       </div>
     </header>

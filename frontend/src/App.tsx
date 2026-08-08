@@ -7,6 +7,7 @@ import { toast } from 'sonner'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import LandingPage from '@/pages/landing/LandingPage'
 import PricingPage from '@/pages/landing/PricingPage'
+import SecurityPage from '@/pages/landing/SecurityPage'
 import AuthLayout from '@/layouts/AuthLayout'
 import DashboardLayout from '@/layouts/DashboardLayout'
 import LoginPage from '@/pages/auth/LoginPage'
@@ -43,6 +44,8 @@ import PoliciesPage from '@/pages/governance/PoliciesPage'
 import DeveloperPage from '@/pages/governance/DeveloperPage'
 import CompliancePage from '@/pages/governance/CompliancePage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
+
+import NotFoundPage from '@/pages/NotFoundPage'
 
 import { useAuthStore } from '@/stores/authStore'
 import { isAuthenticated } from '@/lib/auth'
@@ -148,7 +151,12 @@ export default function App() {
             <Route path="/auth/github/callback" element={<GitHubCallbackPage />} />
             <Route path="/" element={<LandingPage />} />
             <Route path="/pricing" element={<PricingPage />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/security" element={<SecurityPage />} />
+            {/* A real 404. This used to redirect every unknown URL to
+                /dashboard, which sent signed-out visitors who mistyped a path —
+                or followed a stale link — through /dashboard to /login, and
+                told search engines that every 404 was a soft redirect. */}
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
           <Toaster richColors position="top-right" />
         </BrowserRouter>

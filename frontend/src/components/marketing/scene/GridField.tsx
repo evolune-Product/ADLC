@@ -28,6 +28,10 @@ export function GridField({
 }) {
   const group = useRef<THREE.Group>(null)
   const cell = size / divisions
+  // The light theme sets this to 0 and gets no ground plane at all — see the
+  // note in marketing.css. Bailing out here rather than drawing an invisible
+  // one saves the draw call and the per-frame scroll.
+  const hidden = palette.gridOpacity <= 0
 
   const grid = useMemo(() => {
     const positions: number[] = []
@@ -49,17 +53,22 @@ export function GridField({
   useEffect(() => () => grid.dispose(), [grid])
 
   useFrame((_, delta) => {
-    if (!group.current) return
+    if (!group.current || hidden) return
     group.current.position.z = (group.current.position.z + delta * 0.55) % cell
   })
+
+  if (hidden) return null
 
   return (
     <group ref={group} position={[0, y, 0]}>
       <lineSegments geometry={grid}>
+        {/* Opacity comes from the theme: a hairline that reads as a whisper on
+            near-black is invisible on cream, and one that reads on cream is a
+            cage on near-black. */}
         <lineBasicMaterial
           color={palette.grid}
           transparent
-          opacity={0.2}
+          opacity={palette.gridOpacity}
           depthWrite={false}
         />
       </lineSegments>

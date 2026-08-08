@@ -33,7 +33,7 @@ export default function NotificationBell() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="relative p-1.5 rounded hover:bg-black/5 text-muted-foreground hover:text-foreground"
+        className="relative p-1.5 rounded hover:bg-foreground/5 text-muted-foreground hover:text-foreground"
         aria-label={`Notifications${unread ? `, ${unread} unread` : ''}`}
       >
         <Bell className="h-4 w-4" />
@@ -65,7 +65,7 @@ export default function NotificationBell() {
                     if (n.link) navigate(n.link)
                   }}
                   className={cn(
-                    'w-full text-left px-3 py-2.5 flex items-start gap-2 hover:bg-black/[0.02]',
+                    'w-full text-left px-3 py-2.5 flex items-start gap-2 hover:bg-foreground/[0.04]',
                     n.read && 'opacity-60',
                   )}
                 >

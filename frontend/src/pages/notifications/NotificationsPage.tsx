@@ -116,7 +116,7 @@ export default function NotificationsPage() {
                 if (!n.read) markRead.mutate(n.id)
                 if (n.link) navigate(n.link)
               }}
-              className={`w-full text-left px-4 py-3.5 flex items-start gap-3 hover:bg-black/[0.02] transition-colors ${
+              className={`w-full text-left px-4 py-3.5 flex items-start gap-3 hover:bg-foreground/[0.04] transition-colors ${
                 n.read ? 'opacity-60' : ''
               }`}
             >

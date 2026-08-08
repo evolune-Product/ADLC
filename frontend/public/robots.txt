@@ -1,0 +1,33 @@
+# ADLC — https://adlc.dev
+#
+# The public site is /, /pricing and /security. Everything else is either the
+# product itself (behind auth, and useless to a crawler) or an OAuth callback.
+
+User-agent: *
+Allow: /$
+Allow: /pricing
+Allow: /security
+
+Disallow: /dashboard
+Disallow: /login
+Disallow: /register
+Disallow: /auth/
+Disallow: /invitations/
+Disallow: /connections
+Disallow: /skills
+Disallow: /agents
+Disallow: /pods
+Disallow: /projects
+Disallow: /runs
+Disallow: /audit
+Disallow: /settings
+Disallow: /billing
+Disallow: /analytics
+Disallow: /marketplace
+Disallow: /policies
+Disallow: /developer
+Disallow: /compliance
+Disallow: /notifications
+Disallow: /org/
+
+Sitemap: https://adlc.dev/sitemap.xml

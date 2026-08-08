@@ -12,9 +12,16 @@ import './index.css'
 import './styles/marketing.css'
 import '@uiw/react-md-editor/markdown-editor.css'
 import App from './App.tsx'
+import { ThemeProvider } from './components/ThemeProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    {/* Outside the router on purpose: the theme is a property of the document,
+        shared by the public site and the product, and it must not be torn down
+        and rebuilt on navigation. The inline script in index.html has already
+        put the right palette on <html>; this takes ownership of it. */}
+    <ThemeProvider>
+      <App />
+    </ThemeProvider>
   </StrictMode>,
 )

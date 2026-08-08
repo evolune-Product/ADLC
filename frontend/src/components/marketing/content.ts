@@ -306,3 +306,189 @@ export const FAQS = [
     a: 'Every figure here is either counted from the codebase, taken from our published pricing model, or attributed to a named third party. The product is new: we are not going to show you a customer count we do not have. The known limitations are written down in the repository rather than left for you to discover.',
   },
 ] as const
+
+/* ─────────────────────────────────────────────────────────────── positioning */
+
+/**
+ * Where ADLC sits against the two categories buyers are already using.
+ *
+ * Written to survive being read by someone who uses those products daily. The
+ * claims are category-level and about *design intent*, never about quality or
+ * benchmarks — we have not run a comparison and will not imply we have. The
+ * honest position is that ADLC is complementary to both: it does not want to
+ * be your editor, and it does not want to be the thing writing the code so
+ * much as the thing deciding whether that code is allowed to ship.
+ */
+export const POSITIONING = {
+  columns: [
+    { key: 'ide', label: 'IDE assistants', note: 'Copilot, Cursor, Claude Code' },
+    { key: 'agent', label: 'Autonomous agents', note: 'Devin, Factory droids' },
+    { key: 'adlc', label: 'ADLC', note: 'This' },
+  ],
+  rows: [
+    {
+      question: 'Optimised for',
+      ide: 'One developer, going faster',
+      agent: 'One ticket, finished unattended',
+      adlc: 'One organisation, shipping under control',
+    },
+    {
+      question: 'Where the work happens',
+      ide: 'In your editor, beside you',
+      agent: 'In a sandbox, on its own',
+      adlc: 'In your repo, as branches and pull requests',
+    },
+    {
+      question: 'What stops a production deploy',
+      ide: 'Your existing review process',
+      agent: 'Whatever your CI already enforced',
+      adlc: 'A named human, plus a policy that can override them',
+    },
+    {
+      question: 'Where your standards live',
+      ide: 'Rules files, per developer',
+      agent: 'Prompts and configuration',
+      adlc: 'Version-controlled skill markdown, shared by every agent',
+    },
+    {
+      question: 'What you have afterwards',
+      ide: 'A commit history',
+      agent: 'A session transcript',
+      adlc: 'An audit log: who approved what, on which policy, at what cost',
+    },
+    {
+      question: 'Model choice',
+      ide: 'The vendor’s',
+      agent: 'The vendor’s',
+      adlc: 'Per agent, across five providers, or your own local endpoint',
+    },
+  ],
+  /** The claim we are not making, said out loud. */
+  disclaimer:
+    'These are design differences, not benchmarks. We have not run a head-to-head evaluation and this table does not imply one. Most teams that would use ADLC are already using something in the first column, and should keep it — ADLC governs what reaches production, it does not replace the editor you write in.',
+} as const
+
+/* ───────────────────────────────────────────────────────────────── security */
+
+/**
+ * The security posture, as it actually is in the repository today.
+ *
+ * `state: 'built'` means it is in the codebase and you can read it. `state:
+ * 'absent'` means it is not, and it is listed anyway — a security page that
+ * only lists what you have is how a procurement conversation ends badly six
+ * weeks later.
+ */
+export type PostureItem = {
+  title: string
+  body: string
+  state: 'built' | 'absent'
+  /** Where to read it in the repository. */
+  where?: string
+}
+
+export const SECURITY_POSTURE: ReadonlyArray<{
+  group: string
+  items: ReadonlyArray<PostureItem>
+}> = [
+  {
+    group: 'Credentials and data',
+    items: [
+      {
+        title: 'OAuth tokens encrypted at rest',
+        body: 'GitHub, GitLab, Jira and Linear access and refresh tokens are Fernet-encrypted before they reach the database and decrypted only in the service layer at the moment of the call. Raw tokens are never returned by any endpoint.',
+        state: 'built',
+        where: 'backend/app/services/encryption.py',
+      },
+      {
+        title: 'Bring your own model key',
+        body: 'Point any plan at your own Anthropic, OpenAI, Azure or OpenAI-compatible credentials. Your prompts and your code then go to your tenancy, on your contract, under your data-processing terms — not ours.',
+        state: 'built',
+        where: 'backend/app/services/llm_service.py',
+      },
+      {
+        title: 'Local inference for air-gapped installs',
+        body: 'Ollama is a first-class provider, so a deployment can run with no outbound model traffic at all. Embeddings fall back to a local deterministic embedder rather than a hosted API, and the web fonts are bundled instead of fetched from a CDN.',
+        state: 'built',
+        where: 'backend/app/services/embedding_service.py',
+      },
+      {
+        title: 'Retention enforcement',
+        body: 'Indexed repository memory is pruned on a schedule against the configured retention window rather than accumulating indefinitely.',
+        state: 'built',
+        where: 'backend/app/tasks/memory_tasks.py',
+      },
+    ],
+  },
+  {
+    group: 'Control and enforcement',
+    items: [
+      {
+        title: 'Human approval before every production deploy',
+        body: 'The orchestration graph halts at the gate and the Celery worker exits rather than blocking. Nothing merges or promotes until an approval is recorded against a named user.',
+        state: 'built',
+        where: 'backend/app/tasks/run_tasks.py',
+      },
+      {
+        title: 'Policies that can overrule an approval',
+        body: 'N-approver rules, minimum reviewer score, blocking severities, protected paths and branches, changed-file ceilings and per-run cost caps — scoped per environment. A violation returns the run to the gate; it never silently proceeds and never fails the run outright.',
+        state: 'built',
+        where: 'backend/app/services/policy_service.py',
+      },
+      {
+        title: 'Scoped API keys and signed webhooks',
+        body: 'Public API keys carry explicit scopes. Outbound webhooks are HMAC-signed with a per-endpoint secret and every delivery attempt is recorded, so a receiver can verify origin and detect replay.',
+        state: 'built',
+        where: 'backend/app/services/webhook_service.py',
+      },
+      {
+        title: 'Per-run budget cap',
+        body: 'A run that exceeds its configured cost ceiling is aborted mid-flight. An agent that loops is a stopped run and a notification rather than an invoice.',
+        state: 'built',
+        where: 'backend/app/services/metering_service.py',
+      },
+    ],
+  },
+  {
+    group: 'Evidence',
+    items: [
+      {
+        title: 'Every mutating request is audited',
+        body: 'Middleware records the actor, action, entity and timestamp for every successful POST, PUT, PATCH and DELETE across the whole API — not only the endpoints someone remembered to instrument.',
+        state: 'built',
+        where: 'backend/app/middleware/audit_middleware.py',
+      },
+      {
+        title: 'Compliance posture and evidence export',
+        body: 'A posture endpoint and a CSV evidence export exist so the answer to “show me who approved last Tuesday’s deploy, under which policy, against which reviewer score” is a download rather than an afternoon of log archaeology.',
+        state: 'built',
+        where: 'backend/app/routers/governance.py',
+      },
+      {
+        title: 'Cost attribution per run, per agent, per model',
+        body: 'Every model call is metered with token counts and costed in integer millicents — no floating point anywhere in the billing path.',
+        state: 'built',
+        where: 'backend/app/services/metering_service.py',
+      },
+    ],
+  },
+  {
+    group: 'Not in place yet',
+    items: [
+      {
+        title: 'SOC 2 / ISO 27001',
+        body: 'No certification and no audit in progress. We are not going to display a badge we have not earned. If a certification is a hard requirement for your procurement process today, ADLC will not clear it today.',
+        state: 'absent',
+      },
+      {
+        title: 'SSO (SAML / OIDC) and SCIM provisioning',
+        body: 'Authentication is email and password, plus GitHub and Google OAuth. Enterprise identity federation and directory-driven provisioning are on the roadmap and are not built.',
+        state: 'absent',
+      },
+      {
+        title: 'Penetration test report',
+        body: 'No third-party penetration test has been commissioned. The platform has 53 backend unit tests; that is a correctness check, not a security assessment, and it would be dishonest to present it as one.',
+        state: 'absent',
+      },
+    ],
+  },
+]

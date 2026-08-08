@@ -4,8 +4,129 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!--
+      Theme boot. Runs before the first paint and before the stylesheet has
+      anything to key off, so the correct palette is on <html> by the time
+      anything is drawn.
+
+      This must stay inline and stay in <head>: an external file — or the same
+      logic inside React — cannot execute until after the browser has already
+      painted a frame, which is exactly the white flash it exists to prevent.
+
+      Keep the storage key in sync with THEME_STORAGE_KEY in src/lib/theme.tsx.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('adlc-theme')
+          var theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light'
+          var root = document.documentElement
+          root.setAttribute('data-theme', theme)
+          if (theme === 'dark') root.classList.add('dark')
+          root.style.colorScheme = theme
+        } catch (e) {
+          /* private mode, or no matchMedia — fall through to the CSS default */
+        }
+      })()
+    </script>
+
     <title>ADLC — Ship agent work you can actually approve</title>
-    <meta name="description" content="Orchestrate your entire software development lifecycle with autonomous AI agents. From ticket to deployment, fully automated." />
+    <meta
+      name="description"
+      content="ADLC runs your whole delivery loop with AI agents — plan, code, test, review — and stops at an approval gate a human controls. Every deploy is policy-checked and written to an audit log."
+    />
+    <link rel="canonical" href="https://adlc.dev/" />
+
+    <!-- The browser chrome follows the page. Two entries so the address bar is
+         right in both themes without JavaScript having to update it. -->
+    <meta name="theme-color" content="#f5efe6" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#08070a" media="(prefers-color-scheme: dark)" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="ADLC" />
+    <meta property="og:title" content="ADLC — Ship agent work you can actually approve" />
+    <meta
+      property="og:description"
+      content="The governed execution layer for AI software delivery. Ticket to production, with a gate in the middle that a human controls."
+    />
+    <meta property="og:url" content="https://adlc.dev/" />
+    <!-- A raster, not the SVG the rest of the site's art is drawn in: Facebook,
+         X, LinkedIn and Slack all refuse SVG in a card and fall back to no
+         image at all. Regenerate with scripts/og.mjs if the headline changes. -->
+    <meta property="og:image" content="https://adlc.dev/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="ADLC — the delivery pipeline drawn as a rail of agent stages stopping at a red approval gate before dev, qa and prod."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ADLC — Ship agent work you can actually approve" />
+    <meta
+      name="twitter:description"
+      content="The governed execution layer for AI software delivery. Ticket to production, with a gate in the middle that a human controls."
+    />
+    <meta name="twitter:image" content="https://adlc.dev/og.png" />
+
+    <!--
+      Structured data lives here rather than being injected by React, because a
+      crawler that does not run JavaScript still gets it, and because a SPA that
+      appends a <script type="application/ld+json"> per route without removing
+      the previous one ends up publishing contradictory graphs. Per-page schema
+      (FAQPage, and so on) is added by <Seo>, which cleans up after itself.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://adlc.dev/#organization",
+            "name": "Evolune EdgeTech LLP",
+            "url": "https://adlc.dev/",
+            "brand": { "@type": "Brand", "name": "ADLC" }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://adlc.dev/#software",
+            "name": "ADLC",
+            "applicationCategory": "DeveloperApplication",
+            "operatingSystem": "Web",
+            "publisher": { "@id": "https://adlc.dev/#organization" },
+            "description": "Agentic software delivery lifecycle platform. AI agents plan, write, test and review changes; every production deploy stops at a human approval gate and a policy check, and is written to an immutable audit log.",
+            "offers": [
+              {
+                "@type": "Offer",
+                "name": "Free",
+                "price": "0",
+                "priceCurrency": "USD",
+                "category": "free"
+              },
+              {
+                "@type": "Offer",
+                "name": "Team",
+                "price": "199",
+                "priceCurrency": "USD",
+                "category": "subscription"
+              },
+              {
+                "@type": "Offer",
+                "name": "Growth",
+                "price": "699",
+                "priceCurrency": "USD",
+                "category": "subscription"
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
