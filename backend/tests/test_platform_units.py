@@ -511,3 +511,106 @@ class TestMcpServer:
         from app.routers import mcp
         assert (mcp.PARSE_ERROR, mcp.INVALID_REQUEST, mcp.METHOD_NOT_FOUND,
                 mcp.INVALID_PARAMS, mcp.INTERNAL_ERROR) == (-32700, -32600, -32601, -32602, -32603)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Ticket write-back
+#
+# The invariant under test is not "does it post a comment" — that needs a real
+# Jira. It is that write-back can never hurt a run, and that a status move is
+# opt-in while narration is not.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestWritebackSafety:
+    def test_a_raising_tracker_never_escapes_into_the_run(self, monkeypatch):
+        """
+        This is the whole point. `_emit` is called from inside the Celery task
+        that owns a deploy; an exception escaping it would fail a run that has
+        already been approved because Jira was down.
+        """
+        from app.services import writeback_service as w
+
+        def explode(*a, **k):
+            raise RuntimeError("Jira is on fire")
+
+        monkeypatch.setattr(w, "_target", explode)
+        run = types.SimpleNamespace(id="r1", project_id="p1", ticket_id="t1")
+        w._emit(None, run, "running", "hello")   # must not raise
+
+    def test_a_project_without_writeback_enabled_is_a_no_op(self):
+        from app.services import writeback_service as w
+        project = types.SimpleNamespace(writeback={})
+        assert w._config(project) == {}
+        assert not w._config(project).get("enabled")
+
+    def test_failure_maps_to_no_status_by_default(self):
+        """A failed run is not a ticket state. Moving someone's ticket to
+        'Done' or 'Blocked' because an agent crashed is worse than silence."""
+        from app.services.writeback_service import DEFAULT_STATUS_MAP
+        assert DEFAULT_STATUS_MAP["failed"] == ""
+
+    def test_an_empty_status_never_attempts_a_move(self):
+        from app.services import writeback_service as w
+        target = w.WritebackTarget(provider="jira", connection=None, ticket=None,
+                                   status_map={"failed": ""})
+        assert w._move(target, "failed") is False
+
+    def test_only_the_last_environment_closes_the_ticket(self):
+        """
+        A ticket that flips to Done when dev deploys, then sits there while prod
+        is still waiting at a gate, is worse than no write-back at all.
+        """
+        from app.services import writeback_service as w
+
+        class FakeQuery:
+            def __init__(self, project): self._p = project
+            def filter(self, *a): return self
+            def first(self): return self._p
+
+        class FakeDb:
+            def __init__(self, project): self._p = project
+            def query(self, *a): return FakeQuery(self._p)
+
+        project = types.SimpleNamespace(
+            deploy_targets=[{"env": "dev"}, {"env": "qa"}, {"env": "prod"}])
+        db = FakeDb(project)
+        run = types.SimpleNamespace(id="r1", project_id="p1")
+
+        assert w._is_last_environment(db, run, "prod") is True
+        assert w._is_last_environment(db, run, "dev") is False
+        assert w._is_last_environment(db, run, "qa") is False
+
+    def test_a_project_with_no_deploy_targets_treats_any_deploy_as_final(self):
+        from app.services import writeback_service as w
+
+        class FakeDb:
+            def query(self, *a): return self
+            def filter(self, *a): return self
+            def first(self): return types.SimpleNamespace(deploy_targets=[])
+
+        run = types.SimpleNamespace(id="r1", project_id="p1")
+        assert w._is_last_environment(FakeDb(), run, "prod") is True
+
+
+class TestJiraAdf:
+    """Jira Cloud rejects a plain string comment body — it wants Atlassian
+    Document Format — and a URL that is not marked as a link is a URL somebody
+    has to select and copy."""
+
+    def test_urls_become_links(self):
+        from app.services.jira_service import _adf
+        doc = _adf("Opened https://github.com/a/b/pull/3 for review.")
+        marks = [n for n in doc["content"][0]["content"] if n.get("marks")]
+        assert len(marks) == 1
+        assert marks[0]["marks"][0]["attrs"]["href"] == "https://github.com/a/b/pull/3"
+
+    def test_blank_lines_are_dropped_but_a_body_is_always_produced(self):
+        from app.services.jira_service import _adf
+        assert len(_adf("one\n\n\ntwo")["content"]) == 2
+        # An empty doc is a 400 from Jira, so there is always at least one node.
+        assert _adf("")["content"]
+
+    def test_shape_is_a_versioned_doc(self):
+        from app.services.jira_service import _adf
+        doc = _adf("hello")
+        assert doc["type"] == "doc" and doc["version"] == 1

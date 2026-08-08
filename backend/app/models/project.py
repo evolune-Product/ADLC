@@ -25,6 +25,11 @@ class Project(Base):
     pod_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("pods.id"))
     context_md: Mapped[str | None] = mapped_column(Text)
     deploy_targets: Mapped[list] = mapped_column(JSONB, default=list)
+    # Ticket write-back: {"enabled": bool, "status_map": {milestone: status name}}.
+    # Off by default — moving someone's ticket between columns is an opinionated
+    # act, and a platform that starts doing it unasked is a platform people turn
+    # the integration off for. See services/writeback_service.py.
+    writeback: Mapped[dict] = mapped_column(JSONB, default=dict)
     status: Mapped[str] = mapped_column(String(50), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

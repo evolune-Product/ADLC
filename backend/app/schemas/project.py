@@ -33,6 +33,11 @@ class ProjectUpdate(BaseModel):
     pod_id: Optional[uuid.UUID] = None
     context_md: Optional[str] = None
     deploy_targets: Optional[List[DeployTargetSchema]] = None
+    # {"enabled": bool, "status_map": {milestone: status name}} — see
+    # services/writeback_service.py. Free-form because every tracker names its
+    # columns differently and validating against a fixed vocabulary would just
+    # lock out the teams whose workflow is not Jira's default.
+    writeback: Optional[dict] = None
     status: Optional[str] = None
 
 
@@ -49,6 +54,7 @@ class ProjectOut(BaseModel):
     pod_name: Optional[str] = None
     context_md: Optional[str] = None
     deploy_targets: List[Any] = []
+    writeback: dict = {}
     status: str
     created_at: datetime
     updated_at: datetime

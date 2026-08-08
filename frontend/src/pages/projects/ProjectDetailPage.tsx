@@ -9,6 +9,7 @@ import { useTickets, useSyncTickets } from '@/hooks/useTickets'
 import { usePods } from '@/hooks/usePods'
 import { useProjectRuns } from '@/hooks/useRuns'
 import MemoryPanel from '@/components/projects/MemoryPanel'
+import WritebackPanel from '@/components/projects/WritebackPanel'
 
 const TABS = ['Overview', 'Tickets', 'Runs', 'Settings'] as const
 type Tab = typeof TABS[number]
@@ -202,6 +203,9 @@ export default function ProjectDetailPage() {
 
           {/* What the agents know about this codebase */}
           <MemoryPanel projectId={project.id} />
+
+          {/* …and what they tell the tracker back */}
+          <WritebackPanel project={project} />
         </div>
       )}
 

@@ -148,6 +148,8 @@ export interface Project {
   pod_name?: string
   context_md?: string
   deploy_targets: DeployTarget[]
+  /** Ticket write-back config — see backend services/writeback_service.py. */
+  writeback?: { enabled?: boolean; status_map?: Record<string, string> }
   status: 'active' | 'archived'
   created_at: string
   updated_at: string

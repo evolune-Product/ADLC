@@ -27,6 +27,7 @@ def _project_out(p: Project) -> ProjectOut:
         pod_name=p.pod.name if p.pod else None,
         context_md=p.context_md,
         deploy_targets=p.deploy_targets or [],
+        writeback=p.writeback or {},
         status=p.status,
         created_at=p.created_at,
         updated_at=p.updated_at,

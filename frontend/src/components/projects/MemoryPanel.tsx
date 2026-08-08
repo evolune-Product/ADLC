@@ -64,7 +64,10 @@ export default function MemoryPanel({ projectId }: { projectId: string }) {
           <span className="text-muted-foreground">
             <strong className="text-foreground">{status.file_count}</strong> files
           </span>
-          {Object.entries(status.chunks_by_kind).map(([kind, count]) => (
+          {/* Guarded: Object.entries(undefined) throws, and this component is
+              rendered inside the project page — one absent field in a payload
+              would take the whole page down rather than hiding one badge. */}
+          {Object.entries(status.chunks_by_kind ?? {}).map(([kind, count]) => (
             <span key={kind} className="text-muted-foreground">
               {kind}: <strong className="text-foreground">{count}</strong>
             </span>

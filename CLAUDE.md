@@ -713,15 +713,54 @@ Tools: `list_projects` · `list_runs` · `get_run` · `start_run` ·
 - Lives at the root, not under `/v1`: MCP clients take a bare URL and the
   protocol is versioned by `protocolVersion` in the handshake.
 
+## Ticket Write-back
+
+Tickets synced *in* and nothing ever went back — a ticket could go through
+plan, code, QA, review, human approval and a production deploy while sitting in
+"To Do" for everyone not watching this dashboard.
+
+```
+backend/app/services/writeback_service.py   ← the milestones, provider-agnostic
+backend/app/services/jira_service.py        ← add_comment / transition_issue (ADF)
+backend/app/services/linear_service.py      ← comment / move_issue (already existed)
+backend/app/models/project.py               ← Project.writeback JSONB
+frontend/src/components/projects/WritebackPanel.tsx
+migrations/versions/a5b6c7d8e9f0_project_writeback.py
+```
+
+Two rules, and they are the whole design:
+
+1. **A write-back failure can never affect a run.** It is called from inside the
+   Celery task that owns a deploy. Jira being down, a token being revoked, a
+   workflow with no matching transition — none of those are reasons to fail a
+   deploy that has already been approved. `_emit` is wrapped whole and there is
+   a test that feeds it an exploding tracker.
+2. **A comment is always attempted; a status move is opt-in.** Moving someone's
+   ticket between columns is opinionated and every workflow differs; narrating
+   what happened is safe everywhere. `DEFAULT_STATUS_MAP["failed"]` is
+   deliberately blank — a failed run is not a ticket state.
+
+Other things worth not breaking:
+
+- **Only the *last* environment closes the ticket.** A ticket that flips to Done
+  when dev deploys, then sits there while prod waits at a gate, is worse than no
+  write-back at all. `_is_last_environment` guards it.
+- **Jira comments are ADF, not strings** — Jira Cloud rejects a plain string
+  body. `_adf()` builds paragraphs and marks bare URLs as links so they are
+  clickable rather than text someone has to copy.
+- **Jira has no "set status"** — you find the transition that leads to the
+  status you want, and which transitions exist depends on where the issue is
+  right now. That is why it is looked up per issue rather than cached.
+- Off by default. `Project.writeback` defaults to `{}`, which reads as disabled.
+
 ## What Still Isn't Built (Phase 12+)
 
 - SAML SSO and SCIM directory provisioning (OIDC SSO **is** built — see above)
 - Marketplace creator payouts (listings support pricing; no payout flow)
-- Bi-directional Jira/Linear writeback (tickets sync in, status doesn't sync back)
 - AI sprint planning / story-point estimation
 - VS Code extension
 - Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
-- Vitest for the frontend (backend has 78 pytest unit tests)
+- Vitest for the frontend (backend has 87 pytest unit tests)
 - MinIO skill file storage (skills still save `md_content` direct to DB)
 
 ---

@@ -294,6 +294,7 @@ The frontend subscribes to a run room and receives live updates:
 | **Source reading** | URLs in a ticket are fetched, extracted to Markdown (~90% fewer tokens) and scored, so the approver can see how good the brief the plan was built from actually was |
 | **Library** | 14 built-in skills, 6 agent templates, 3 pod templates, publishable marketplace |
 | **Integrations** | GitHub, GitLab, Jira, Linear · Slack, email, signed outbound webhooks |
+| **Ticket write-back** | Progress goes back to Jira and Linear — a comment at each milestone with the PR and run links, and an opt-in status move. Never able to fail a run |
 | **Enterprise identity** | Per-organisation OIDC SSO (Okta, Entra ID, Google Workspace, Auth0, Keycloak) with PKCE, JWKS verification and optional enforcement that refuses password sign-in |
 | **MCP server** | `POST /mcp` exposes runs, the pending-approval queue and the reader as tools any agent can call — with approval behind its own scope, so a key that starts work cannot wave it through |
 | **Automation** | Public API v1 with scoped API keys — trigger runs from CI, approve from ChatOps |

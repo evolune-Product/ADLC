@@ -29,6 +29,7 @@ from app.agents.qa_agent import run_qa_agent
 from app.agents.review_agent import run_review_agent
 from app.agents.devops_agent import run_devops_agent
 from app.services import memory_service, metering_service, notifier, policy_service
+from app.services import writeback_service
 from app.services.notification_service import emit_run_event
 
 log = logging.getLogger(__name__)
@@ -147,6 +148,10 @@ def trigger_run_until_approval(self, run_id: str):
         db.commit()
 
         emit_run_event(run_id, "run:started", {"runId": run_id})
+        # Ticket write-back. Every one of these is best-effort by construction —
+        # see writeback_service — so a ticket tracker being down cannot touch a
+        # run that is already in flight.
+        writeback_service.on_run_started(db, run)
 
         state = _load_state_from_db(run_id, db)
         if not state:
@@ -212,6 +217,10 @@ def trigger_run_until_approval(self, run_id: str):
             payload={"run_id": run_id, "pr_url": state.get("pr_url"), "review_score": score},
         )
 
+        if run:
+            writeback_service.on_awaiting_approval(
+                db, run, pr_url=state.get("pr_url"), review_score=score)
+
     except Exception as exc:
         log.exception("Unhandled error in trigger_run_until_approval for %s", run_id)
         run = db.query(Run).filter(Run.id == run_id).first()
@@ -234,6 +243,7 @@ def resume_after_approval(self, run_id: str, decision: str, comment: str | None 
         user_id, org_id, project_row = _owner(db, run)
 
         if decision != "approved":
+            writeback_service.on_changes_requested(db, run, comment)
             run.status = "failed"
             run.error_message = f"Changes requested: {comment or 'No comment'}"
             run.completed_at = datetime.now(timezone.utc)
@@ -340,6 +350,7 @@ def _record_deployment(db, run_id: str, target: dict, gate=None) -> None:
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
         return
+    writeback_service.on_deployed(db, run, (target or {}).get("env") or "environment")
     db.add(Deployment(
         run_id=run.id,
         project_id=run.project_id,
@@ -440,6 +451,7 @@ def _fail_and_notify(db, run_id: str, state: dict, fallback: str) -> None:
 
 
 def _fail_run(run: Run, error: str, db) -> None:
+    writeback_service.on_failed(db, run, error)
     run.status = "failed"
     run.error_message = error
     run.current_step = None
