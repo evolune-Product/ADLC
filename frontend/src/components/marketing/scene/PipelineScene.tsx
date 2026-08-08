@@ -1,14 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { Bloom, EffectComposer, Vignette } from '@react-three/postprocessing'
 import { KernelSize } from 'postprocessing'
 import { DeliveryLine } from './DeliveryLine'
-import type { PipelinePhase } from './DeliveryLine'
+import type { PipelinePhase, ProjectFn } from './pipelineTimeline'
 import { GridField, Motes } from './GridField'
 import { Rig } from './Rig'
 import { scenePalette } from './palette'
-import { useMediaQuery, usePointer, useScrollProgress } from '../hooks'
+import { useMediaQuery, usePointer } from '../hooks'
 
 /**
  * The scene. Mounted only by the marketing pages, only on the client, only
@@ -19,33 +19,31 @@ import { useMediaQuery, usePointer, useScrollProgress } from '../hooks'
  * Budget discipline, because a cinematic scene that drops frames stops being
  * cinematic:
  *   - one draw call for the grid, one for the motes
- *   - the render loop is suspended entirely once the hero scrolls out of view
+ *   - the render loop is suspended entirely once the stage scrolls out of view
  *   - the post-processing chain is dropped on small screens
  *   - dpr is capped at 1.75; past that, bloom costs more than it shows
  */
 export function PipelineScene({
   active = true,
   onPhase,
+  onProject,
 }: {
-  /** False once the hero has left the viewport — freezes the loop. */
+  /** False once the stage has left the viewport — freezes the loop. */
   active?: boolean
   onPhase?: (phase: PipelinePhase) => void
+  onProject?: ProjectFn
 }) {
   const pointer = usePointer()
-  const scrollProgress = useScrollProgress()
   const isSmall = useMediaQuery('(max-width: 900px)')
   const isCoarse = useMediaQuery('(pointer: coarse)')
 
   const palette = useMemo(() => scenePalette(), [])
-
-  const [, setActivity] = useState(0)
   const lastLabel = useRef<string | null>(null)
 
   const handlePhase = useCallback(
     (phase: PipelinePhase) => {
       if (phase.label !== lastLabel.current) {
         lastLabel.current = phase.label
-        setActivity(phase.activity)
         onPhase?.(phase)
       }
     },
@@ -62,18 +60,11 @@ export function PipelineScene({
         alpha: true,
         powerPreference: 'high-performance',
         toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 1.1,
+        toneMappingExposure: 1.12,
       }}
-      // Set well back and above the trunk, aimed above it rather than at it,
-      // so the whole graph — branch, four commits, gate, three environments —
-      // fits in frame and settles into the lower third, under the headline
-      // instead of through it.
-      camera={{
-        position: [1.0, 1.9, isSmall ? 23 : 15.5],
-        fov: 46,
-        near: 0.1,
-        far: 200,
-      }}
+      // Position is solved by the Rig from the graph's bounding box; this is
+      // only the first frame's guess, before it settles.
+      camera={{ position: [1.9, 0, 14], fov: 42, near: 0.1, far: 200 }}
       style={{ pointerEvents: 'none' }}
     >
       {/* Exponential fog dissolves both ends of the line into the page
@@ -84,15 +75,15 @@ export function PipelineScene({
       <ambientLight intensity={palette.ambient} />
 
       <GridField palette={palette} divisions={isSmall ? 36 : 60} />
-      <Motes count={isSmall ? 80 : 200} palette={palette} />
-      <DeliveryLine palette={palette} onPhase={handlePhase} />
-
-      <Rig
-        pointer={pointer}
-        scrollProgress={scrollProgress}
-        strength={isCoarse ? 0.35 : 1}
-        baseZ={isSmall ? 23 : 15.5}
+      <Motes count={isSmall ? 70 : 170} palette={palette} />
+      <DeliveryLine
+        palette={palette}
+        onPhase={handlePhase}
+        onProject={onProject}
+        vertical={isSmall}
       />
+
+      <Rig pointer={pointer} strength={isCoarse ? 0.35 : 1} vertical={isSmall} />
 
       {isSmall ? (
         <></>
@@ -105,7 +96,7 @@ export function PipelineScene({
             kernelSize={KernelSize.LARGE}
             mipmapBlur
           />
-          <Vignette offset={0.3} darkness={0.66} />
+          <Vignette offset={0.34} darkness={0.55} />
         </EffectComposer>
       )}
     </Canvas>

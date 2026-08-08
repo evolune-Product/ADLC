@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { TIMELINE_TOTAL, phaseAtTime } from './scene/pipelineTimeline'
+import type { PipelinePhase } from './scene/pipelineTimeline'
 
 /**
  * Turns the marketing design system on for as long as a page is mounted.
@@ -130,4 +132,44 @@ export function useInView<T extends HTMLElement>(
   }, [once, rootMargin])
 
   return { ref, inView }
+}
+
+/**
+ * Drives the pipeline timeline for views that have no render loop of their own
+ * — currently the compact mobile stage, which deliberately does not load
+ * three.js.
+ *
+ * Runs on rAF but only calls setState when the phase's label actually changes,
+ * so a fifteen-second loop costs about a dozen renders rather than nine
+ * hundred. Pauses itself when the tab is hidden.
+ */
+export function usePipelinePhase(enabled: boolean) {
+  const [phase, setPhase] = useState<PipelinePhase | null>(null)
+
+  useEffect(() => {
+    if (!enabled) return
+
+    let frame = 0
+    let start = performance.now()
+    let last: string | null = null
+
+    const tick = (now: number) => {
+      if (!document.hidden) {
+        const next = phaseAtTime((now - start) / 1000)
+        if (next.label !== last) {
+          last = next.label
+          setPhase(next)
+        }
+      } else {
+        // Keep the clock from jumping a whole loop while backgrounded.
+        start = now - ((now - start) % (TIMELINE_TOTAL * 1000))
+      }
+      frame = requestAnimationFrame(tick)
+    }
+
+    frame = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(frame)
+  }, [enabled])
+
+  return phase
 }

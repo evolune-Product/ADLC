@@ -1,8 +1,22 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import { MEMBRANE_FRAG, MEMBRANE_VERT } from './shaders'
 import type { ScenePalette } from './palette'
+import {
+  BRANCH_AT,
+  COMMIT_U,
+  ENVIRONMENTS,
+  LABEL_RAIL_Y,
+  MERGE_AT,
+  TRUNK_FROM,
+  TRUNK_TO,
+  TRUNK_Y,
+  describePhase,
+  easeInOut,
+  phaseAt,
+} from './pipelineTimeline'
+import type { NodeId, NodeState, PipelinePhase, ProjectFn } from './pipelineTimeline'
 
 /**
  * The run, drawn the way engineers already draw it: a git graph.
@@ -21,127 +35,24 @@ import type { ScenePalette } from './palette'
  * Every element below corresponds to something in `run_tasks.py`.
  */
 
-export type PipelinePhase = {
-  label: string
-  kind: 'running' | 'held' | 'passed' | 'idle'
-  /** Feeds the gate's agitation and the lights' intensity. */
-  activity: number
-}
-
-/* ─────────────────────────────────────────────────────────────── geometry */
-
-/**
- * Sits low in the frame. The graph is the ground the headline stands on, not
- * something drawn across it — at trunk height 0 the line ran straight through
- * the word "approve".
- */
-const TRUNK_Y = -1.5
-const TRUNK_FROM = -16
-const TRUNK_TO = 16
-
-const BRANCH_AT = -6.5
-const MERGE_AT = 2.2
-
-/** Where the four agent commits sit along the branch, as curve parameters. */
-const COMMIT_U = [0.17, 0.39, 0.61, 0.83]
-
-/** Environments the DevOps agent promotes through, in order. */
-const ENVIRONMENTS = [
-  { name: 'dev', x: 5.0 },
-  { name: 'qa', x: 7.6 },
-  { name: 'prod', x: 10.4 },
-]
-
-/* ──────────────────────────────────────────────────────────────── timeline */
-
-type Phase =
-  | { type: 'branch'; duration: number }
-  | { type: 'commit'; index: number; duration: number }
-  | { type: 'move'; from: number; to: number; duration: number }
-  | { type: 'toGate'; duration: number }
-  | { type: 'hold'; duration: number }
-  | { type: 'merge'; duration: number }
-  | { type: 'promote'; env: number; duration: number }
-  | { type: 'done'; duration: number }
-
-const COMMIT_LABELS = [
-  'PLANNER · file-level plan committed',
-  'CODER · changes pushed to branch',
-  'QA · tests run against the diff',
-  'REVIEWER · diff scored, findings posted',
-]
-
-/**
- * One loop. Deliberately asymmetric: the hold at the gate is the longest beat
- * on the line, because in a real run it is by far the longest wait.
- */
-const TIMELINE: Phase[] = [
-  { type: 'branch', duration: 1.1 },
-  { type: 'commit', index: 0, duration: 1.5 },
-  { type: 'move', from: 0, to: 1, duration: 0.7 },
-  { type: 'commit', index: 1, duration: 1.8 },
-  { type: 'move', from: 1, to: 2, duration: 0.7 },
-  { type: 'commit', index: 2, duration: 1.5 },
-  { type: 'move', from: 2, to: 3, duration: 0.7 },
-  { type: 'commit', index: 3, duration: 1.7 },
-  { type: 'toGate', duration: 0.9 },
-  { type: 'hold', duration: 3.2 },
-  { type: 'merge', duration: 1.0 },
-  { type: 'promote', env: 0, duration: 1.1 },
-  { type: 'promote', env: 1, duration: 1.1 },
-  { type: 'promote', env: 2, duration: 1.3 },
-  { type: 'done', duration: 1.6 },
-]
-
-const TOTAL = TIMELINE.reduce((sum, p) => sum + p.duration, 0)
-
-function phaseAt(elapsed: number) {
-  let t = elapsed % TOTAL
-  for (let i = 0; i < TIMELINE.length; i++) {
-    const phase = TIMELINE[i]
-    if (t < phase.duration) return { phase, local: t / phase.duration, index: i }
-    t -= phase.duration
-  }
-  return { phase: TIMELINE[TIMELINE.length - 1], local: 1, index: TIMELINE.length - 1 }
-}
-
-function describe(phase: Phase): PipelinePhase {
-  switch (phase.type) {
-    case 'branch':
-      return { label: 'BRANCH · agent/adlc-482 cut from main', kind: 'running', activity: 0.5 }
-    case 'commit':
-      return { label: COMMIT_LABELS[phase.index], kind: 'running', activity: 1 }
-    case 'move':
-      return { label: 'HANDOFF · artefacts passed on', kind: 'running', activity: 0.4 }
-    case 'toGate':
-      return { label: 'PULL REQUEST · opened against main', kind: 'running', activity: 0.6 }
-    case 'hold':
-      return { label: 'HELD · awaiting human approval', kind: 'held', activity: 0.1 }
-    case 'merge':
-      return { label: 'APPROVED · merged to main', kind: 'passed', activity: 0.85 }
-    case 'promote':
-      return {
-        label: `DEPLOYING · ${ENVIRONMENTS[phase.env].name}`,
-        kind: 'passed',
-        activity: 0.6,
-      }
-    case 'done':
-      return { label: 'SHIPPED · run complete', kind: 'passed', activity: 0.15 }
-  }
-}
-
-const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2)
-
 /* ────────────────────────────────────────────────────────────── component */
 
 export function DeliveryLine({
   palette,
   onPhase,
+  onProject,
+  vertical = false,
 }: {
   palette: ScenePalette
   /** Fires only when the phase changes, never per frame. */
   onPhase?: (phase: PipelinePhase) => void
+  /** Fires per node per frame with screen-space coordinates. */
+  onProject?: ProjectFn
+  /** Run the line top-to-bottom instead of left-to-right. */
+  vertical?: boolean
 }) {
+  const { camera, size } = useThree()
+  const root = useRef<THREE.Group>(null)
   const head = useRef<THREE.Group>(null)
   const commits = useRef<Array<THREE.Mesh | null>>([])
   const envs = useRef<Array<THREE.Mesh | null>>([])
@@ -180,9 +91,33 @@ export function DeliveryLine({
   )
 
   const scratch = useMemo(
-    () => ({ scale: new THREE.Vector3(), point: new THREE.Vector3() }),
+    () => ({
+      scale: new THREE.Vector3(),
+      point: new THREE.Vector3(),
+      /** Reused for every projection — `project()` mutates in place. */
+      projected: new THREE.Vector3(),
+    }),
     [],
   )
+
+  /** World → screen pixels, for the DOM label overlay. */
+  const project = useMemo(() => {
+    return (id: NodeId, world: THREE.Vector3, state: NodeState) => {
+      if (!onProject) return
+      scratch.projected.copy(world)
+      // The graph may be rotated as a whole, so a node's local position is not
+      // its world position. Go through the group's matrix rather than
+      // duplicating the rotation maths here.
+      if (root.current) root.current.localToWorld(scratch.projected)
+      scratch.projected.project(camera)
+      onProject(
+        id,
+        (scratch.projected.x * 0.5 + 0.5) * size.width,
+        (-scratch.projected.y * 0.5 + 0.5) * size.height,
+        state,
+      )
+    }
+  }, [onProject, camera, size.width, size.height, scratch])
 
   const membraneUniforms = useMemo(
     () => ({
@@ -204,7 +139,7 @@ export function DeliveryLine({
 
     if (index !== lastPhase.current) {
       lastPhase.current = index
-      onPhase?.(describe(phase))
+      onPhase?.(describePhase(phase))
     }
 
     const damp = Math.min(1, delta * 6)
@@ -337,21 +272,52 @@ export function DeliveryLine({
     }
 
     /* ── environment markers ───────────────────────────────────────────── */
+    const deployedTo = (i: number) =>
+      !resetting &&
+      ((phase.type === 'promote' && (phase.env > i || (phase.env === i && local > 0.75))) ||
+        phase.type === 'done')
+
     envs.current.forEach((mesh, i) => {
       if (!mesh) return
-      const deployed =
-        !resetting &&
-        ((phase.type === 'promote' && (phase.env > i || (phase.env === i && local > 0.75))) ||
-          phase.type === 'done')
+      const deployed = deployedTo(i)
       const material = mesh.material as THREE.MeshBasicMaterial
       material.color.lerp(deployed ? colors.pass : colors.idle, damp)
       material.opacity += ((deployed ? 1 : 0.4) - material.opacity) * damp
       mesh.scale.lerp(scratch.scale.setScalar(deployed ? 1.15 : 1), damp)
     })
+
+    /* ── DOM labels ────────────────────────────────────────────────────── */
+    // Every node is named on screen. Anonymous dots are pretty; a diagram of a
+    // pipeline whose stages you cannot name is not doing its job.
+    if (onProject) {
+      commitPoints.forEach((point, i) => {
+        const lit = !resetting && i <= reached
+        const working = phase.type === 'commit' && phase.index === i
+        // Anchored at a common height rather than at the node itself: the
+        // branch is an arc, so projecting each chip from its own commit
+        // staggered the four of them down a slope. Aligned, they read as one
+        // row of stages, which is what they are.
+        scratch.point.set(point.x, LABEL_RAIL_Y, point.z)
+        project(`commit-${i}` as NodeId, scratch.point, working ? 'active' : lit ? 'passed' : 'idle')
+      })
+
+      scratch.point.set(MERGE_AT, TRUNK_Y, 0)
+      project('gate', scratch.point, holding ? 'held' : opening ? 'passed' : 'idle')
+
+      ENVIRONMENTS.forEach((env, i) => {
+        scratch.point.set(env.x, TRUNK_Y, 0)
+        const arriving = phase.type === 'promote' && phase.env === i
+        project(
+          `env-${i}` as NodeId,
+          scratch.point,
+          arriving ? 'active' : deployedTo(i) ? 'passed' : 'idle',
+        )
+      })
+    }
   })
 
   return (
-    <group>
+    <group ref={root} rotation={[0, 0, vertical ? -Math.PI / 2 : 0]}>
       {/* main — the trunk everything lands on */}
       <mesh position={[(TRUNK_FROM + TRUNK_TO) / 2, TRUNK_Y, 0]}>
         <boxGeometry args={[TRUNK_TO - TRUNK_FROM, 0.02, 0.02]} />

@@ -3,8 +3,7 @@ import { useLocation } from 'react-router-dom'
 
 import { Atmosphere, MarketingFooter, MarketingNav } from '@/components/marketing/Chrome'
 import { useMarketingSurface } from '@/components/marketing/hooks'
-import { PipelineCanvas } from '@/components/marketing/scene/PipelineCanvas'
-import type { PipelinePhase } from '@/components/marketing/scene/DeliveryLine'
+import type { PipelinePhase } from '@/components/marketing/scene/pipelineTimeline'
 import { Hero } from '@/components/marketing/sections/Hero'
 import { Problem } from '@/components/marketing/sections/Problem'
 import { Interstitial } from '@/components/marketing/sections/Interstitial'
@@ -37,16 +36,10 @@ export default function LandingPage() {
       <Atmosphere />
       <MarketingNav />
 
-      {/* The scene sits behind the first screen only. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[100svh] overflow-hidden">
-        <PipelineCanvas className="absolute inset-0" onPhase={handlePhase} />
-        {/* Horizon: the scene dissolves into the page instead of ending at an
-            edge. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-64 bg-gradient-to-b from-transparent to-[var(--mk-ground)]" />
-      </div>
-
       <main className="relative">
-        <Hero phase={phase} />
+        {/* The scene lives inside the hero now, on its own stage, rather than
+            as a full-bleed layer behind the type. */}
+        <Hero phase={phase} onPhase={handlePhase} />
 
         <Problem />
 

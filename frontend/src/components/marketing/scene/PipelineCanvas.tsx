@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { StaticPipeline } from './StaticPipeline'
-import type { PipelinePhase } from './DeliveryLine'
+import type { PipelinePhase, ProjectFn } from './pipelineTimeline'
 import { useReducedMotion } from '../hooks'
 
 // ~500 kB of three plus the post-processing chain never reaches a visitor who
@@ -44,9 +44,11 @@ function isCapableDevice() {
 export function PipelineCanvas({
   className,
   onPhase,
+  onProject,
 }: {
   className?: string
   onPhase?: (phase: PipelinePhase) => void
+  onProject?: ProjectFn
 }) {
   const reduced = useReducedMotion()
   const [webgl, setWebgl] = useState<boolean | null>(null)
@@ -119,7 +121,7 @@ export function PipelineCanvas({
       {showScene ? (
         <Suspense fallback={null}>
           <div className="mk-animate-fade-in absolute inset-0">
-            <PipelineScene active={active} onPhase={onPhase} />
+            <PipelineScene active={active} onPhase={onPhase} onProject={onProject} />
           </div>
         </Suspense>
       ) : null}

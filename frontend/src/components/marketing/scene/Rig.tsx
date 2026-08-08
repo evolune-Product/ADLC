@@ -2,17 +2,19 @@ import { useRef } from 'react'
 import type { RefObject } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
+import { graphExtent } from './pipelineTimeline'
 
 /**
- * Camera movement. Three inputs, all damped, all additive:
+ * Camera. Two jobs:
  *
- *   pointer  — a shallow parallax that makes the scene feel like a volume you
- *              are standing inside rather than a picture of one
- *   scroll   — a dolly that pushes the camera through the system and drops it
- *              below the orbital plane as the hero leaves, so the ring opens
- *              from edge-on into a readable circle
- *   idle     — a permanent, almost imperceptible drift, so a page nobody is
- *              touching is still never quite still
+ * 1. **Fit the graph to the frame, whatever shape the frame is.** The stage is
+ *    a wide, short band on a desktop and a nearly square one on a phone, and a
+ *    diagram that runs off the edge on one of them is worse than no diagram.
+ *    The distance is solved from the graph's bounding box on every frame, so
+ *    it holds at any viewport rather than at two guessed breakpoints.
+ * 2. **Keep it alive.** A shallow pointer parallax so the band reads as a
+ *    volume, and a permanent, almost imperceptible drift so a page nobody is
+ *    touching is still never quite still.
  *
  * Damping is frame-rate independent (1 − e^(−k·dt)), so a 120 Hz display and a
  * throttled background tab arrive at the same position at the same wall-clock
@@ -20,46 +22,50 @@ import { useFrame, useThree } from '@react-three/fiber'
  */
 export function Rig({
   pointer,
-  scrollProgress,
   strength = 1,
-  baseZ = 8.6,
+  vertical = false,
 }: {
   pointer: RefObject<{ x: number; y: number }>
-  scrollProgress: RefObject<number>
   strength?: number
-  /** Standing distance. Pulled further back on narrow screens, where the same
-   *  scene fills a much taller, narrower frame. */
-  baseZ?: number
+  vertical?: boolean
 }) {
-  const { camera } = useThree()
-  const target = useRef(new THREE.Vector3(1.0, 1.9, baseZ))
-  const lookAt = useRef(new THREE.Vector3(0, 0, 0))
+  const { camera, size } = useThree()
+  const target = useRef(new THREE.Vector3())
+  const lookAt = useRef(new THREE.Vector3())
+
+  const extent = graphExtent(vertical)
+  const centreX = (extent.minX + extent.maxX) / 2
+  const centreY = (extent.minY + extent.maxY) / 2
 
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime
     const p = pointer.current ?? { x: 0, y: 0 }
-    const scroll = scrollProgress.current ?? 0
+
+    const perspective = camera as THREE.PerspectiveCamera
+    const halfFov = (perspective.fov * Math.PI) / 360
+    const aspect = size.width / Math.max(size.height, 1)
+
+    // The distance at which the box's height fits, and the distance at which
+    // its width fits. Whichever is further back is the one that frames both.
+    const halfWidth = (extent.maxX - extent.minX) / 2
+    const halfHeight = (extent.maxY - extent.minY) / 2
+    const fitZ = Math.max(halfHeight / Math.tan(halfFov), halfWidth / (aspect * Math.tan(halfFov)))
 
     target.current.set(
-      // Tracks a little way down the line as the hero leaves, so the camera
-      // follows the direction the work travels rather than pulling straight
-      // back from it.
-      1.0 + scroll * 1.8 + p.x * 0.9 * strength + Math.sin(t * 0.11) * 0.16,
-      1.9 + scroll * 0.9 + -p.y * 0.4 * strength + Math.cos(t * 0.09) * 0.12,
-      baseZ - scroll * 3.2,
+      centreX + p.x * 0.55 * strength + Math.sin(t * 0.11) * 0.12,
+      // Lifted above the graph's centre so the plane it stands on is visible
+      // underneath it — dead-on, the grid collapses to a single line.
+      centreY + (vertical ? 0.2 : 0.9) + -p.y * 0.28 * strength + Math.cos(t * 0.09) * 0.08,
+      fitZ * 1.04,
     )
 
     const damp = 1 - Math.exp(-2.6 * delta)
     camera.position.lerp(target.current, damp)
 
-    // Aimed *above* the trunk, not at it. Looking straight down the line put
-    // the graph across the middle of the frame, which is where the headline
-    // lives; sighting high drops the whole structure into the lower third.
-    lookAt.current.set(
-      1.4 - p.x * 0.3,
-      1.3 - scroll * 0.7 + p.y * 0.12,
-      0,
-    )
+    // The look-at target drifts against the parallax, which widens the
+    // apparent movement without moving the camera far enough to distort the
+    // composition or push a node out of frame.
+    lookAt.current.set(centreX - p.x * 0.18, centreY + (vertical ? 0 : 0.12) + p.y * 0.07, 0)
     camera.lookAt(lookAt.current)
   })
 

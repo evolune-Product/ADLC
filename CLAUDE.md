@@ -529,9 +529,11 @@ src/components/marketing/
   Chrome.tsx                          ← Atmosphere, AdlcMark, nav, footer
   ui.tsx                              ← Eyebrow, Readout, MkButton, SectionHead
   scene/
+    pipelineTimeline.ts               ← the model: phases, layout, extent. NO three
+    HeroStage.tsx                     ← band + projected DOM labels + compact view
     PipelineCanvas.tsx                ← capability gate + lazy boot + fallback
     PipelineScene.tsx                 ← Canvas, fog, bloom/vignette (lazy chunk)
-    DeliveryLine.tsx                  ← the run as a git graph + the timeline
+    DeliveryLine.tsx                  ← the run drawn as a git graph
     GridField.tsx · Rig.tsx · shaders.ts · palette.ts
     StaticPipeline.tsx                ← SVG fallback (reduced motion / no WebGL)
   sections/                           ← Hero, Problem, HowItWorks, TheGate,
@@ -554,9 +556,17 @@ Rules that matter:
 3. **`TheGate` section is a faithful port of `policy_service`** — same severity ranks,
    same `100 − weighted penalty` review score, same reason strings. If the server's
    logic changes, change it there too or the page starts lying.
-4. **three.js is a lazy chunk** (~257 kB gz) that only loads after `requestIdleCallback`
-   and only on a capable device with WebGL and no reduced-motion preference. It stops
-   rendering the moment the hero scrolls out of view.
+4. **three.js is a lazy chunk** (~256 kB gz) that only loads after `requestIdleCallback`,
+   only on a capable device with WebGL and no reduced-motion preference, and **never
+   below 860px** — phones get `CompactStage`, a DOM timeline driven by the same
+   schedule. It stops rendering the moment the stage scrolls out of view.
+6. **`pipelineTimeline.ts` must never import three.** It is the shared model: the WebGL
+   scene and the compact mobile stage are two views of it, and `hooks.ts` imports it. One
+   three import there would put the whole renderer in the main bundle for every visitor.
+7. **Every node on the stage is named.** Labels are DOM chips whose positions are
+   projected from world space each frame and written straight to `transform` — never
+   through React state. Anonymous dots are pretty; a pipeline whose stages you cannot
+   name is not doing its job.
 5. **Fonts are bundled** (`@fontsource-variable/*`), not fetched from a CDN — this
    platform is meant to run air-gapped.
 
