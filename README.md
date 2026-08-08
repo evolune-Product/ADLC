@@ -53,14 +53,21 @@ for a human decision — and an approval policy decides whether that decision is
 `/` and `/pricing` are a separate marketing surface with its own dark theme, scoped
 to `[data-surface="marketing"]` so it never touches the product UI's palette.
 
-The hero renders the pipeline as a WebGL scene: five agent nodes on an orbital path,
-a work packet travelling between them, and the approval gate — where the packet
-visibly **stops** until it is released. It is the same state machine the orchestrator
-runs, and the status readout under the headline is driven by its phase events.
+The hero renders the run as a **git graph** in WebGL: `main` runs left to right, a
+feature branch is cut from it and gathers a commit as each agent finishes, and the
+approval gate stands at the merge point — where HEAD visibly **stops** until it is
+released. Only then does the merge land and the change promote through dev, qa and
+prod. It is the same state machine the orchestrator runs, and the status readout under
+the headline is driven by its phase events.
+
+Sign-in and sign-up share that surface. The product UI behind them deliberately does
+not: it is a work tool, so it stays light and calm, and carries the brand through
+typography — the same display face on headings, the same mono face on every measured
+number — rather than through atmosphere.
 
 The scene is a lazy chunk that only loads on a WebGL-capable device once the browser
 is idle, and stops rendering when the hero scrolls away. Reduced-motion visitors, and
-anyone without WebGL, get an SVG rendering of the same six slots instead.
+anyone without WebGL, get an SVG rendering of the same graph instead.
 
 The **approval-gate section is interactive**: toggling a policy rule re-evaluates a
 sample run through a faithful client-side port of `policy_service.evaluate_deploy`,

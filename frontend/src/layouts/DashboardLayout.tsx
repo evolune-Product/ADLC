@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useOrgStore } from '@/stores/orgStore'
 import OrgSwitcher from '@/components/org/OrgSwitcher'
 import NotificationBell from '@/components/notifications/NotificationBell'
+import { AdlcMark } from '@/components/marketing/Chrome'
 
 const NAV = [
   {
@@ -78,11 +79,11 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
     >
       {/* Logo */}
       <div className="flex items-center justify-between px-4 h-12 border-b border-border shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-5 h-5 rounded bg-foreground flex items-center justify-center">
-            <span className="text-background text-[9px] font-black tracking-tight">A</span>
-          </div>
-          <span className="text-sm font-semibold tracking-tight text-foreground">Agentic SDLC</span>
+        {/* Same mark and same name as the public site. Two marks and two names
+            across one product is the fastest way to look like two products. */}
+        <div className="flex items-center gap-2 text-foreground">
+          <AdlcMark className="h-5 w-5" />
+          <span className="app-display text-sm tracking-tight text-foreground">ADLC</span>
         </div>
         <button
           onClick={onClose}
@@ -200,7 +201,7 @@ function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
       >
         <Menu className="h-4 w-4" />
       </button>
-      <span className="lg:hidden text-sm font-semibold text-foreground">Agentic SDLC</span>
+      <span className="lg:hidden app-display text-sm text-foreground">ADLC</span>
       {/* The approval gate is worthless if the reviewer never hears about it. */}
       <div className="ml-auto">
         <NotificationBell />

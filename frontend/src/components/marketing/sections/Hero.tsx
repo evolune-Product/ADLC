@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { MkButton } from '../ui'
 import { PLATFORM_FACTS } from '../content'
-import type { PipelinePhase } from '../scene/PipelineRing'
+import type { PipelinePhase } from '../scene/DeliveryLine'
 
 /**
  * The hero opens on the product's actual argument rather than a description of

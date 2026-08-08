@@ -10,15 +10,22 @@ export function Atmosphere() {
   return <div className="mk-atmosphere" aria-hidden="true" />
 }
 
-/** The mark. A gate glyph: two posts and the bar that holds work between
- *  them, which is the one idea the product is built around. */
+/**
+ * The mark. A gate glyph: two posts and the bar that holds work between them,
+ * which is the one idea the product is built around.
+ *
+ * The posts are `currentColor` rather than a marketing token, so the same
+ * component works on the dark marketing surface and on the product's cream
+ * ground without a second copy. Only the brand orange is fixed — it is legible
+ * on both.
+ */
 export function AdlcMark({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={cn('h-6 w-6', className)} aria-hidden="true">
-      <rect x="2" y="3" width="2.6" height="18" rx="1" fill="var(--mk-ink)" opacity="0.55" />
-      <rect x="19.4" y="3" width="2.6" height="18" rx="1" fill="var(--mk-ink)" opacity="0.55" />
-      <rect x="6" y="10.7" width="12" height="2.6" rx="1.3" fill="var(--mk-ember)" />
-      <circle cx="12" cy="6" r="2.1" fill="var(--mk-amber)" />
+      <rect x="2" y="3" width="2.6" height="18" rx="1" fill="currentColor" opacity="0.55" />
+      <rect x="19.4" y="3" width="2.6" height="18" rx="1" fill="currentColor" opacity="0.55" />
+      <rect x="6" y="10.7" width="12" height="2.6" rx="1.3" fill="#E8632A" />
+      <circle cx="12" cy="6" r="2.1" fill="#F5A623" />
     </svg>
   )
 }

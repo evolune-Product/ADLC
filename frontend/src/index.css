@@ -65,6 +65,34 @@
   }
 }
 
+/* ─── Brand continuity with the marketing surface ─────────────────────────────
+   The product UI stays light — it is a work tool, and a dark cinematic chrome
+   over dense tables and audit logs is worse to use, not better. What it does
+   share with the public site is its *typography*: the same display face on
+   headings and the same instrument face on numbers, so the two read as one
+   product without the app borrowing the marketing page's atmosphere.
+
+   Scoped away from [data-surface="marketing"], which sets its own faces. */
+
+.app-display,
+:root:not([data-surface='marketing']) h1,
+:root:not([data-surface='marketing']) h2 {
+  font-family: 'Archivo Variable', 'Archivo', system-ui, sans-serif;
+  font-variation-settings: 'wdth' 108;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+}
+
+/* Every measured number in the product — stat tiles, costs, counts, scores.
+   Mono and tabular so columns of them line up and none of them jitters as a
+   value ticks over. */
+.app-metric {
+  font-family: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
 /* ─── onto design utilities ───────────────────────────────────────────────── */
 
 /* Section label — "01 — TITLE" style */

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { StaticPipeline } from './StaticPipeline'
-import type { PipelinePhase } from './PipelineRing'
+import type { PipelinePhase } from './DeliveryLine'
 import { useReducedMotion } from '../hooks'
 
 // ~500 kB of three plus the post-processing chain never reaches a visitor who
@@ -108,7 +108,7 @@ export function PipelineCanvas({
       {/* The instant first frame, and the safety net if WebGL context creation
           fails after the capability check passed. It cross-fades out as the
           real scene arrives rather than staying underneath it: both draw the
-          same six slots, and leaving both up rendered the pipeline twice. */}
+          same graph, and leaving both up rendered the pipeline twice. */}
       <div
         className="absolute inset-0 transition-opacity duration-1000"
         style={{ opacity: showScene ? 0 : 1 }}

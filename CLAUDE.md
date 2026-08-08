@@ -530,9 +530,9 @@ src/components/marketing/
   ui.tsx                              ← Eyebrow, Readout, MkButton, SectionHead
   scene/
     PipelineCanvas.tsx                ← capability gate + lazy boot + fallback
-    PipelineScene.tsx                 ← Canvas, lights, bloom/vignette (lazy chunk)
-    PipelineRing.tsx                  ← the run: 5 agents + the gate, state machine
-    OrchestratorCore.tsx · Starfield.tsx · Rig.tsx · shaders.ts · palette.ts
+    PipelineScene.tsx                 ← Canvas, fog, bloom/vignette (lazy chunk)
+    DeliveryLine.tsx                  ← the run as a git graph + the timeline
+    GridField.tsx · Rig.tsx · shaders.ts · palette.ts
     StaticPipeline.tsx                ← SVG fallback (reduced motion / no WebGL)
   sections/                           ← Hero, Problem, HowItWorks, TheGate,
                                         Platform, Pricing, Trust, Faq,
@@ -544,9 +544,13 @@ Rules that matter:
 1. **`content.ts` is the only place copy and numbers live.** A figure must be counted
    from this repo, taken from `documents/BUSINESS_PLAN_2026.md`, or attributed to a
    named source rendered next to it. No invented metrics, no customer counts.
-2. **The scene is the state machine, not decoration.** `PipelineRing`'s timeline is
-   the real pipeline; the hero's status readout is driven by the same phase events, so
-   the words and the picture can never disagree.
+2. **The scene is the state machine, not decoration.** `DeliveryLine` draws the run as
+   a **git graph**: `main` runs left to right, a feature branch is cut from it and
+   gathers four agent commits, the approval gate stands at the merge point and HEAD
+   *stops* there, and only after release does the change promote through dev → qa →
+   prod. The hero's status readout is driven by the same phase events, so the words and
+   the picture can never disagree. An earlier version used an orbital ring; it read as a
+   solar system whatever the labels said, and could not show a merge or a promotion.
 3. **`TheGate` section is a faithful port of `policy_service`** — same severity ranks,
    same `100 − weighted penalty` review score, same reason strings. If the server's
    logic changes, change it there too or the page starts lying.
@@ -578,6 +582,8 @@ Rules that matter:
 4. **Auth in App.tsx**: `RequireAuth` wraps all dashboard routes; `RedirectIfAuthed` wraps `/login` and `/register`
 5. **Landing page is public**: `/` and `/pricing` render with no auth check — no "Open Dashboard" button
 5b. **Two surfaces, one app**: the product UI is the light cream shadcn theme on `:root`; the marketing pages are a dark theme scoped to `[data-surface="marketing"]` (`src/styles/marketing.css`, all classes prefixed `mk-`), applied by `useMarketingSurface()` on mount and removed on unmount. Never define a `mk-` token on `:root`, and never use a shadcn token inside a marketing component — the two palettes must not meet.
+5c. **Auth belongs to marketing**: `AuthLayout` is on the marketing surface and carries `.mk-auth`, which **redefines the shadcn tokens** (`--background`, `--card`, `--border`, …) for that subtree. The login/register markup is unchanged and simply resolves dark; new auth pages inherit it for free.
+5d. **The app stays light on purpose.** It is a work tool — dense tables, audit logs, long sessions. Do not port the marketing grain/bloom/dark ground into it. Brand continuity comes from *type*, not atmosphere: `AdlcMark` + the name "ADLC" everywhere, `.app-display` (Archivo) on headings, `.app-metric` (JetBrains Mono, tabular) on every measured number.
 6. **API base URL**: Frontend uses `VITE_API_URL` — no `/api` prefix in route definitions (Nginx strips it in prod)
 7. **Encryption**: All OAuth tokens must be Fernet-encrypted before DB insert — use `services/encryption.py`
 8. **Two Celery tasks**: Never block a worker at the approval gate — `task_run_until_approval` stops, `task_resume_after_approval` continues

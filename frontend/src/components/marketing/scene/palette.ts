@@ -14,10 +14,10 @@ const FALLBACK = {
   '--mk-scene-bg': '#08070a',
   '--mk-ember': '#e8632a',
   '--mk-ember-lit': '#ff8f5c',
-  '--mk-ember-deep': '#7a2d0f',
   '--mk-amber': '#f5a623',
   '--mk-ink': '#f5efe6',
   '--mk-ink-3': '#7d766f',
+  '--mk-hairline-lit': '#342d3d',
   '--mk-pass': '#4ade80',
   '--mk-hold': '#f2545b',
 } as const
@@ -34,18 +34,18 @@ export function scenePalette() {
 
   return {
     background: read('--mk-scene-bg'),
-    /** Molten interior of the core — the deep end of the heat ramp. */
-    coreDeep: read('--mk-ember-deep'),
-    /** Crest and rim colour, and the light the core casts on its neighbours. */
-    coreLit: read('--mk-ember'),
-    coreShell: read('--mk-ember-lit'),
-    coreHalo: read('--mk-ember'),
 
-    /** Agent nodes idle in ink and heat up as the run reaches them. */
+    /** The feature branch, and anything else carrying the brand's heat. */
+    coreLit: read('--mk-ember'),
+
+    /** The ruled ground the line runs on. */
+    grid: read('--mk-hairline-lit'),
+
+    /** Commits and environment markers: dark until the run reaches them. */
     agentIdle: read('--mk-ink-3'),
     agentActive: read('--mk-amber'),
 
-    /** The work packet moving down the pipeline. */
+    /** HEAD — the change moving down the line. */
     packet: read('--mk-ink'),
 
     /** Gate states. These two are the only semantic colours in the scene:
@@ -54,13 +54,8 @@ export function scenePalette() {
     gatePass: read('--mk-pass'),
     gateIdle: read('--mk-ember-lit'),
 
-    /** Mostly ink-white with a heated minority — the coloured few are what
-     *  give the field temperature without turning it into confetti. */
-    starColors: [read('--mk-ink'), read('--mk-amber'), read('--mk-ember'), read('--mk-ink-3')],
-    starOpacity: 0.85,
-
-    fogDensity: 0.0125,
-    ambient: 0.55,
-    bloomIntensity: 1.15,
+    fogDensity: 0.026,
+    ambient: 0.6,
+    bloomIntensity: 1.1,
   }
 }

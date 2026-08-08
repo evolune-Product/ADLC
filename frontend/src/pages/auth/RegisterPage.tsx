@@ -60,7 +60,7 @@ export default function RegisterPage() {
     <div>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Create account</h1>
-        <p className="text-sm text-muted-foreground mt-1">Set up your Agentic SDLC workspace.</p>
+        <p className="text-sm text-muted-foreground mt-1">Set up your ADLC workspace.</p>
       </div>
 
       {/* Social OAuth */}

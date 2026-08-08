@@ -32,7 +32,7 @@ export function Rig({
   baseZ?: number
 }) {
   const { camera } = useThree()
-  const target = useRef(new THREE.Vector3(0, 0.6, baseZ))
+  const target = useRef(new THREE.Vector3(1.0, 1.9, baseZ))
   const lookAt = useRef(new THREE.Vector3(0, 0, 0))
 
   useFrame((state, delta) => {
@@ -41,18 +41,25 @@ export function Rig({
     const scroll = scrollProgress.current ?? 0
 
     target.current.set(
-      p.x * 0.8 * strength + Math.sin(t * 0.11) * 0.16,
-      0.6 + scroll * 1.6 + -p.y * 0.4 * strength + Math.cos(t * 0.09) * 0.12,
-      baseZ - scroll * 3.0,
+      // Tracks a little way down the line as the hero leaves, so the camera
+      // follows the direction the work travels rather than pulling straight
+      // back from it.
+      1.0 + scroll * 1.8 + p.x * 0.9 * strength + Math.sin(t * 0.11) * 0.16,
+      1.9 + scroll * 0.9 + -p.y * 0.4 * strength + Math.cos(t * 0.09) * 0.12,
+      baseZ - scroll * 3.2,
     )
 
     const damp = 1 - Math.exp(-2.6 * delta)
     camera.position.lerp(target.current, damp)
 
-    // The look-at target drifts against the parallax, which widens the
-    // apparent movement without moving the camera far enough to distort the
-    // composition behind the headline.
-    lookAt.current.set(-p.x * 0.26, -scroll * 0.55 + p.y * 0.13, 0)
+    // Aimed *above* the trunk, not at it. Looking straight down the line put
+    // the graph across the middle of the frame, which is where the headline
+    // lives; sighting high drops the whole structure into the lower third.
+    lookAt.current.set(
+      1.4 - p.x * 0.3,
+      1.3 - scroll * 0.7 + p.y * 0.12,
+      0,
+    )
     camera.lookAt(lookAt.current)
   })
 

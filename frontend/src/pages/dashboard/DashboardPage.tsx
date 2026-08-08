@@ -56,7 +56,7 @@ export default function DashboardPage() {
             {isLoading
               ? <div className="h-8 w-12 rounded bg-muted animate-pulse" />
               : (
-                <p className={`text-3xl font-bold tracking-tight ${accent && value > 0 ? 'text-[#E8632A]' : 'text-foreground'}`}>
+                <p className={`app-metric text-3xl ${accent && value > 0 ? 'text-[#E8632A]' : 'text-foreground'}`}>
                   {value}
                 </p>
               )

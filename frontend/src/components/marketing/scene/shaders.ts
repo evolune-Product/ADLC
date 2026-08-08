@@ -108,6 +108,62 @@ void main() {
 }
 `
 
+/* ------------------------------------------------------------ gate membrane */
+
+/**
+ * The surface stretched across the gate — the thing the merge cannot cross
+ * unaided. A plane whose interior churns on noise, brightest at the rim, and
+ * pushed physically out of plane while it is holding, so the barrier reads as
+ * under pressure rather than as a coloured disc.
+ */
+export const MEMBRANE_VERT = /* glsl */ `
+uniform float uTime;
+uniform float uAmplitude;
+
+varying vec2 vUv;
+varying float vNoise;
+
+${SIMPLEX_3D}
+
+void main() {
+  vUv = uv;
+
+  float n = snoise(vec3(position.xy * 2.6, uTime * 0.55));
+  vNoise = n;
+
+  // Only the interior flexes; the rim is clamped so the ring stays a ring.
+  float radial = 1.0 - smoothstep(0.0, 0.5, length(position.xy));
+  vec3 displaced = position + vec3(0.0, 0.0, n * uAmplitude * radial);
+
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
+}
+`
+
+export const MEMBRANE_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform float uOpacity;
+uniform float uTime;
+
+varying vec2 vUv;
+varying float vNoise;
+
+void main() {
+  vec2 centred = vUv - 0.5;
+  float dist = length(centred) * 2.0;
+  if (dist > 1.0) discard;
+
+  // Bright at the edge, thin in the middle: a stretched film, not a plate.
+  float rim = smoothstep(0.55, 1.0, dist);
+  float body = (0.28 + vNoise * 0.32) * (1.0 - dist * 0.6);
+
+  // Slow concentric scan, so a held gate is visibly doing something.
+  float scan = 0.16 * smoothstep(0.9, 1.0, abs(sin(dist * 7.0 - uTime * 1.1)));
+
+  float alpha = (body + rim * 0.85 + scan) * uOpacity;
+  gl_FragColor = vec4(uColor, clamp(alpha, 0.0, 1.0));
+}
+`
+
 /* ------------------------------------------------------- orchestrator core */
 
 export const CORE_VERT = /* glsl */ `

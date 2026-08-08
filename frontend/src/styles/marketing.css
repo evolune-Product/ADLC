@@ -260,6 +260,59 @@
 }
 
 /* ============================================================================
+   AUTH SURFACE
+   ----------------------------------------------------------------------------
+   Sign-in and sign-up are marketing, not work: they are the last thing someone
+   sees before they decide, and dropping from a cinematic page onto a blank
+   cream form reads as leaving the product.
+
+   Rather than rewriting the auth forms, this **redefines the shadcn tokens
+   they already consume** for the subtree they live in. `bg-card`,
+   `border-border`, `text-foreground` and the rest keep working exactly as
+   written and simply resolve dark. New auth pages inherit it for free, and the
+   product UI on `:root` is untouched.
+
+   Values are the HSL equivalents of the `--mk-*` tokens above; shadcn wraps
+   them in hsl(), so they must stay bare triplets.
+   ========================================================================== */
+
+.mk-auth {
+  --background: 260 18% 3%; /* --mk-ground */
+  --foreground: 36 43% 93%; /* --mk-ink */
+  --card: 260 16% 7%; /* --mk-panel */
+  --card-foreground: 36 43% 93%;
+  --popover: 260 16% 7%;
+  --popover-foreground: 36 43% 93%;
+  --primary: 18 81% 54%; /* --mk-ember */
+  --primary-foreground: 260 18% 4%;
+  --secondary: 265 15% 9%;
+  --secondary-foreground: 36 43% 93%;
+  --muted: 265 15% 9%;
+  --muted-foreground: 28 8% 63%; /* --mk-ink-2 */
+  --accent: 265 15% 9%;
+  --accent-foreground: 36 43% 93%;
+  --destructive: 357 86% 64%; /* --mk-hold */
+  --destructive-foreground: 36 43% 93%;
+  --border: 262 16% 14%; /* --mk-hairline */
+  --input: 262 16% 14%;
+  --ring: 18 81% 54%;
+}
+
+/* The one thing tokens cannot express: the forms build their submit button as
+   `bg-foreground text-background`, which on a dark ground would render a cream
+   button. The primary action has to be the same ember as everywhere else. */
+.mk-auth button[type='submit'] {
+  background-color: var(--mk-ember);
+  color: #0a0508;
+  font-weight: 600;
+}
+
+.mk-auth button[type='submit']:hover:not(:disabled) {
+  background-color: var(--mk-ember-lit);
+  opacity: 1;
+}
+
+/* ============================================================================
    ATMOSPHERE
    Grain and vignette sit above everything. Together they stop the large flat
    darks from banding and give the page a photographed quality rather than a
