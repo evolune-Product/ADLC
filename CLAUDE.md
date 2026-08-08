@@ -258,6 +258,14 @@ GET    /projects/:id/memory        POST   /projects/:id/memory/index
 POST   /projects/:id/memory/search GET    /projects/:id/memory/chunks
 POST   /projects/:id/memory/notes  DELETE /projects/:id/memory
 
+── SSO (OIDC, per organisation) ────────────────────────────────────────────
+GET    /auth/sso/lookup            GET    /auth/sso/start
+GET    /auth/sso/callback
+GET/PUT/DELETE /orgs/:id/sso       ← owner only
+
+── MCP (Bearer adlc_live_… , JSON-RPC 2.0) ─────────────────────────────────
+POST   /mcp                        ← initialize · tools/list · tools/call · ping
+
 ── Public API (Bearer adlc_live_… , scoped) ────────────────────────────────
 GET    /v1/whoami                  GET    /v1/projects
 GET/POST /v1/runs                  GET    /v1/runs/:id
@@ -644,23 +652,76 @@ Rules that matter:
    brighter than the page. Tone mapping is off in light too, so the fog colour
    composites exactly against the CSS ground.
 9. **`SECURITY_POSTURE` lists what is *not* built alongside what is.** No SOC 2,
-   no SSO, no pen test. If one of those ships, move it — do not quietly delete
-   the row.
+   no SAML, no SCIM, no pen test. When one of those ships, **move** the row into
+   a built group — as OIDC SSO was — do not quietly delete it.
 10. **`POSITIONING` compares design intent, never quality.** It names Copilot,
    Cursor, Claude Code, Devin and Factory. No benchmark is implied and the
    disclaimer under the table says so. Do not add a row that claims ADLC is
    faster or better at anything measurable.
 
+## Enterprise Identity (OIDC SSO)
+
+Per-organisation OpenID Connect. Authorization code + PKCE, ID token verified
+against the IdP's JWKS, nonce checked, domain re-checked on the way back.
+
+```
+backend/app/services/sso_service.py      ← discovery, PKCE, JWKS verification
+backend/app/models/organization.py       ← SsoConnection (one per org)
+backend/app/routers/auth.py              ← /auth/sso/{lookup,start,callback}
+backend/app/routers/organizations.py     ← owner-only CRUD
+frontend/src/components/org/SsoPanel.tsx
+frontend/src/pages/auth/SsoCallbackPage.tsx
+migrations/versions/f4a5b6c7d8e9_sso_connections.py
+```
+
+- **OIDC only, on purpose.** Every usable SAML library links against
+  `libxmlsec1`, a native build dependency, and this platform is meant to install
+  from a compose file inside an air-gapped perimeter. OIDC reaches Okta, Entra
+  ID, Google Workspace, Auth0, Keycloak and PingFederate over plain HTTPS.
+  SAML-only IdPs are a real gap and are **named as one** on `/security`.
+- **`state` is a signed JWT, not a session row** — carries the connection id,
+  nonce and PKCE verifier, expires in 10 minutes. No Redis, and a callback that
+  lands on a different worker still validates.
+- **The redirect URI is on the API** (`settings.api_base_url`), never the SPA:
+  the code exchange uses the client secret. One URI serves every tenant.
+- **A domain can only be claimed by one organisation.** Two orgs claiming
+  `acme.com` would make routing a coin toss and land users in the wrong tenant.
+- **Enforcement is checked in `login()` before the password**, otherwise it is a
+  suggestion rather than a control.
+- Owner-only, not admin: an admin who could point the org at an IdP they control
+  could sign in as anyone in it.
+
+## MCP Server (`POST /mcp`)
+
+ADLC as tools any agent can call — JSON-RPC 2.0 over Streamable HTTP,
+authenticated with the same scoped `adlc_live_…` API keys as the REST API.
+
+Tools: `list_projects` · `list_runs` · `get_run` · `start_run` ·
+`list_pending_approvals` · `approve_run` · `read_url`
+
+- **The scope split is the whole design.** `start_run` needs `runs:write`;
+  `approve_run` needs `runs:approve`. A key that can start work deliberately
+  cannot wave it through — "let the agent do it end to end" has to be a
+  decision someone makes when minting the key, not an accident. There is a test
+  asserting those two never collapse into one scope.
+- **`approve_run`'s description is a guardrail**, and there is a test asserting
+  it still says "production" and "audit log". It is the only thing between an
+  eager agent and a deploy.
+- Tool failures come back as MCP tool errors (`isError: true`) rather than
+  JSON-RPC protocol errors, so a model can read the reason and stop instead of
+  retrying blindly.
+- Lives at the root, not under `/v1`: MCP clients take a bare URL and the
+  protocol is versioned by `protocolVersion` in the handshake.
+
 ## What Still Isn't Built (Phase 12+)
 
-- MCP server exposing runs/approvals as tools to other orchestrators
+- SAML SSO and SCIM directory provisioning (OIDC SSO **is** built — see above)
 - Marketplace creator payouts (listings support pricing; no payout flow)
 - Bi-directional Jira/Linear writeback (tickets sync in, status doesn't sync back)
 - AI sprint planning / story-point estimation
-- SSO (SAML/OIDC) and SCIM provisioning
 - VS Code extension
 - Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
-- Vitest for the frontend (backend has 53 pytest unit tests)
+- Vitest for the frontend (backend has 78 pytest unit tests)
 - MinIO skill file storage (skills still save `md_content` direct to DB)
 
 ---

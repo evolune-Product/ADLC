@@ -5,6 +5,7 @@ import { AlertTriangle } from 'lucide-react'
 import { useOrgs, useUpdateOrg, useDeleteOrg } from '@/hooks/useOrgs'
 import { useOrgStore } from '@/stores/orgStore'
 import { getApiError } from '@/lib/api'
+import SsoPanel from '@/components/org/SsoPanel'
 
 export default function OrgSettingsPage() {
   const { orgId } = useParams<{ orgId: string }>()
@@ -83,6 +84,14 @@ export default function OrgSettingsPage() {
           )}
         </form>
       </div>
+
+      {/* Identity — sits above the danger zone because it is the thing an
+          enterprise buyer opens this page to configure. */}
+      {orgId && (
+        <div className="bg-card border border-border rounded-lg p-5">
+          <SsoPanel orgId={orgId} isOwner={isOwner} />
+        </div>
+      )}
 
       {/* Danger zone — owner only */}
       {isOwner && (

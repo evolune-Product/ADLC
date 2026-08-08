@@ -1,5 +1,5 @@
 from app.models.user import User
-from app.models.organization import Organization, OrgMember, OrgInvitation
+from app.models.organization import Organization, OrgMember, OrgInvitation, SsoConnection
 from app.models.connection import Connection
 from app.models.skill import Skill
 from app.models.agent import Agent, AgentSkill
@@ -18,7 +18,7 @@ from app.models.memory import MemoryChunk, MemoryIndex
 from app.models.insight import ReviewFinding, RunFeedback, Deployment, SourceRead
 
 __all__ = [
-    "User", "Organization", "OrgMember", "OrgInvitation",
+    "User", "Organization", "OrgMember", "OrgInvitation", "SsoConnection",
     "Connection", "Skill", "Agent", "AgentSkill",
     "Pod", "PodAgent", "Project", "Ticket",
     "Run", "RunStep", "Approval", "AuditLog",

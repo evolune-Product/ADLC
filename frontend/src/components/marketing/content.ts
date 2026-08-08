@@ -441,6 +441,12 @@ export const SECURITY_POSTURE: ReadonlyArray<{
         where: 'backend/app/services/webhook_service.py',
       },
       {
+        title: 'Single sign-on, with enforcement',
+        body: 'Per-organisation OpenID Connect: authorization code flow with PKCE, the ID token verified against the provider’s published signing keys, nonce replay protection, and a domain re-check so a permissive identity provider cannot become a route into another tenant. Turning on enforcement refuses password sign-in for the claimed domains outright rather than offering SSO alongside it.',
+        state: 'built',
+        where: 'backend/app/services/sso_service.py',
+      },
+      {
         title: 'Per-run budget cap',
         body: 'A run that exceeds its configured cost ceiling is aborted mid-flight. An agent that loops is a stopped run and a notification rather than an invoice.',
         state: 'built',
@@ -480,8 +486,8 @@ export const SECURITY_POSTURE: ReadonlyArray<{
         state: 'absent',
       },
       {
-        title: 'SSO (SAML / OIDC) and SCIM provisioning',
-        body: 'Authentication is email and password, plus GitHub and Google OAuth. Enterprise identity federation and directory-driven provisioning are on the roadmap and are not built.',
+        title: 'SAML, and SCIM directory provisioning',
+        body: 'OIDC single sign-on is built (see “Control and enforcement”), which covers Okta, Entra ID, Google Workspace, Auth0, Keycloak and PingFederate. SAML-only identity providers are not supported, and there is no SCIM endpoint — users are provisioned when they first sign in, and de-provisioning means removing them from the organisation here as well as in your directory.',
         state: 'absent',
       },
       {

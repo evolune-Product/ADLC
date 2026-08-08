@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.routers import auth, connections, skills, agents, pods, projects, tickets, runs, audit
 from app.routers import dashboard, settings as settings_router
-from app.routers import billing, notifications, insights, governance, catalog, memory, public_api
+from app.routers import billing, notifications, insights, governance, catalog, memory, public_api, mcp
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
 
@@ -42,6 +42,10 @@ fastapi_app.include_router(catalog.router,        prefix="",               tags=
 fastapi_app.include_router(memory.router,         prefix="",               tags=["memory"])
 # Public, API-key authenticated surface for CI and customer automation
 fastapi_app.include_router(public_api.router,     prefix="/v1",            tags=["public-api"])
+# MCP lives at the root, not under /v1: an MCP client config takes a URL and
+# the spec's convention is a bare /mcp. It is versioned by protocolVersion in
+# the handshake, not by a path segment.
+fastapi_app.include_router(mcp.router,            prefix="",               tags=["mcp"])
 
 
 @fastapi_app.get("/health")

@@ -26,10 +26,11 @@ from datetime import datetime, timezone, timedelta
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.organization import Organization, OrgMember, OrgInvitation
+from app.models.organization import Organization, OrgMember, OrgInvitation, SsoConnection
 from app.models.user import User
 from app.routers.auth import get_current_user
 from app.schemas.organization import (
@@ -38,6 +39,8 @@ from app.schemas.organization import (
     InvitationCreate, InvitationOut,
 )
 from app.config import settings
+from app.services import sso_service
+from app.services.encryption import encrypt_token
 
 router = APIRouter()
 inv_router = APIRouter()   # mounted at /invitations
@@ -410,3 +413,113 @@ def accept_invitation(
     db.commit()
     db.refresh(member)
     return _member_out(member)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Single sign-on
+#
+# Owner-only, because an SSO connection decides who can get into the
+# organisation at all — that is a strictly larger power than any admin action,
+# and an admin who can point the org at an IdP they control can let themselves
+# in as anyone.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class SsoBody(BaseModel):
+    label: str = Field("SSO", max_length=100)
+    issuer: str
+    client_id: str
+    # Optional on update: an admin editing the domain list should not have to
+    # re-enter a secret they cannot read back.
+    client_secret: str | None = None
+    email_domains: List[str] = []
+    default_role: str = "member"
+    enforced: bool = False
+    enabled: bool = True
+
+
+def _sso_out(conn: SsoConnection) -> dict:
+    return {
+        "id": str(conn.id),
+        "label": conn.label,
+        "issuer": conn.issuer,
+        "client_id": conn.client_id,
+        # The secret is never returned, only whether one is set. A settings page
+        # that can echo a client secret is a settings page that leaks it.
+        "client_secret_set": bool(conn.client_secret),
+        "email_domains": conn.email_domains or [],
+        "default_role": conn.default_role,
+        "enforced": conn.enforced,
+        "enabled": conn.enabled,
+        "redirect_uri": sso_service.redirect_uri(),
+        "last_login_at": conn.last_login_at.isoformat() if conn.last_login_at else None,
+    }
+
+
+@router.get("/{org_id}/sso")
+def get_sso(org_id: uuid.UUID, db: Session = Depends(get_db),
+            current_user: User = Depends(get_current_user)):
+    _require_admin(org_id, current_user, db)
+    conn = db.query(SsoConnection).filter(SsoConnection.org_id == org_id).first()
+    if not conn:
+        return {"configured": False, "redirect_uri": sso_service.redirect_uri()}
+    return {"configured": True, **_sso_out(conn)}
+
+
+@router.put("/{org_id}/sso")
+def put_sso(org_id: uuid.UUID, body: SsoBody, db: Session = Depends(get_db),
+            current_user: User = Depends(get_current_user)):
+    _require_owner(org_id, current_user, db)
+
+    domains = sorted({d.strip().lower().lstrip("@") for d in body.email_domains if d.strip()})
+    if not domains:
+        raise HTTPException(400, "Add at least one email domain, or nobody can be routed here.")
+
+    # A domain can only be claimed once across the whole platform. Two orgs
+    # claiming acme.com would make "which IdP does this user go to" a coin toss,
+    # and the loser's users would land in the winner's tenant.
+    clash = (
+        db.query(SsoConnection)
+        .filter(SsoConnection.org_id != org_id)
+        .all()
+    )
+    for other in clash:
+        overlap = set(domains) & {d.lower() for d in (other.email_domains or [])}
+        if overlap:
+            raise HTTPException(409, f"{', '.join(sorted(overlap))} is already claimed by another organisation.")
+
+    # Fail here rather than on Monday morning: an unreachable issuer or a
+    # missing JWKS is a typo, and the admin is looking at the form right now.
+    try:
+        sso_service.check_connection(body.issuer)
+    except sso_service.SsoError as exc:
+        raise HTTPException(400, str(exc))
+
+    conn = db.query(SsoConnection).filter(SsoConnection.org_id == org_id).first()
+    if not conn:
+        if not body.client_secret:
+            raise HTTPException(400, "A client secret is required to create a connection.")
+        conn = SsoConnection(org_id=org_id)
+        db.add(conn)
+
+    conn.label = body.label or "SSO"
+    conn.issuer = body.issuer.rstrip("/")
+    conn.client_id = body.client_id
+    if body.client_secret:
+        conn.client_secret = encrypt_token(body.client_secret)
+    conn.email_domains = domains
+    conn.default_role = body.default_role if body.default_role in ("member", "admin") else "member"
+    conn.enforced = body.enforced
+    conn.enabled = body.enabled
+    db.commit()
+    db.refresh(conn)
+    return {"configured": True, **_sso_out(conn)}
+
+
+@router.delete("/{org_id}/sso", status_code=status.HTTP_204_NO_CONTENT)
+def delete_sso(org_id: uuid.UUID, db: Session = Depends(get_db),
+               current_user: User = Depends(get_current_user)):
+    _require_owner(org_id, current_user, db)
+    conn = db.query(SsoConnection).filter(SsoConnection.org_id == org_id).first()
+    if conn:
+        db.delete(conn)
+        db.commit()

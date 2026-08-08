@@ -372,3 +372,142 @@ class TestSourceReaderScoring:
         # Never zero: a costed thing that estimates as free is worse than a
         # rough estimate.
         assert estimate_tokens("") == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Single sign-on
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@pytest.fixture
+def fake_idp():
+    """
+    A discovered identity provider, without the network.
+
+    `discover()` caches by issuer, so priming the cache is the honest seam here:
+    the tests below are about state, PKCE and URL construction, and none of them
+    should fail because a build machine has no outbound DNS.
+    """
+    from app.services import sso_service
+    issuer = "https://idp.example"
+    sso_service._discovery_cache[issuer] = (time.monotonic(), {
+        "issuer": issuer,
+        "authorization_endpoint": f"{issuer}/authorize",
+        "token_endpoint": f"{issuer}/token",
+        "jwks_uri": f"{issuer}/keys",
+        "userinfo_endpoint": f"{issuer}/userinfo",
+        "code_challenge_methods_supported": ["S256"],
+    })
+    yield issuer
+    sso_service._discovery_cache.pop(issuer, None)
+
+
+class TestSsoState:
+    """
+    The `state` parameter is a signed JWT rather than a row in Redis, which is
+    what lets a callback land on a different worker than the one that started
+    the flow. It is also the only thing binding the PKCE verifier and the nonce
+    to this particular sign-in, so tampering and expiry both have to be fatal.
+    """
+
+    def test_state_round_trips_the_connection_nonce_and_verifier(self, fake_idp):
+        from app.services import sso_service
+        url = sso_service.authorize_url("11111111-1111-1111-1111-111111111111",
+                                        fake_idp, "client-abc")
+        from urllib.parse import parse_qs, urlparse
+        state = parse_qs(urlparse(url).query)["state"][0]
+        claims = sso_service.read_state(state)
+        assert claims["cid"] == "11111111-1111-1111-1111-111111111111"
+        assert claims["nonce"] and claims["verifier"]
+
+    def test_a_tampered_state_is_refused(self):
+        from app.services import sso_service
+        with pytest.raises(sso_service.SsoError):
+            sso_service.read_state("not.a.jwt")
+
+    def test_an_expired_state_is_refused(self):
+        from jose import jwt
+        from app.config import settings
+        from app.services import sso_service
+        stale = jwt.encode({"cid": "x", "nonce": "n", "verifier": "v",
+                            "exp": int(time.time()) - 5},
+                           settings.jwt_secret, algorithm="HS256")
+        with pytest.raises(sso_service.SsoError):
+            sso_service.read_state(stale)
+
+    def test_pkce_challenge_is_s256_not_plain(self, fake_idp):
+        """`plain` would make PKCE decorative — the whole point is that an
+        intercepted authorization code is useless without the verifier."""
+        from urllib.parse import parse_qs, urlparse
+        from app.services import sso_service
+        url = sso_service.authorize_url("cid", fake_idp, "client")
+        q = parse_qs(urlparse(url).query)
+        assert q["code_challenge_method"] == ["S256"]
+        assert q["code_challenge"][0] != q["state"][0]
+
+    def test_two_flows_never_share_a_verifier(self, fake_idp):
+        from urllib.parse import parse_qs, urlparse
+        from app.services import sso_service
+        seen = set()
+        for _ in range(5):
+            url = sso_service.authorize_url("cid", fake_idp, "client")
+            state = parse_qs(urlparse(url).query)["state"][0]
+            seen.add(sso_service.read_state(state)["verifier"])
+        assert len(seen) == 5
+
+    def test_redirect_uri_points_at_the_api_not_the_spa(self):
+        """The code exchange uses the client secret, so it can never happen in
+        a browser."""
+        from app.config import settings
+        from app.services import sso_service
+        assert sso_service.redirect_uri().startswith(settings.api_base_url.rstrip("/"))
+        assert sso_service.redirect_uri().endswith("/auth/sso/callback")
+
+    def test_domain_extraction_is_case_insensitive(self):
+        from app.services.sso_service import domain_of
+        assert domain_of("Person@ACME.com") == "acme.com"
+        assert domain_of("  a@b.co.uk ") == "b.co.uk"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MCP server
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestMcpServer:
+    def test_every_tool_has_a_handler(self):
+        from app.routers import mcp
+        assert set(mcp.HANDLERS) == {t["name"] for t in mcp.TOOLS}
+
+    def test_the_manifest_does_not_leak_internal_scope_bookkeeping(self):
+        from app.routers import mcp
+        assert all("scope" not in t for t in mcp._public_tools())
+        assert all("inputSchema" in t and "description" in t for t in mcp._public_tools())
+
+    def test_approval_needs_a_scope_that_starting_work_does_not_grant(self):
+        """
+        The invariant the whole design rests on: a key that can start a run must
+        not be able to wave it through. If these two ever collapse to the same
+        scope, the approval gate stops meaning anything for API callers.
+        """
+        from app.routers import mcp
+        by_name = {t["name"]: t["scope"] for t in mcp.TOOLS}
+        assert by_name["start_run"] == "runs:write"
+        assert by_name["approve_run"] == "runs:approve"
+        assert by_name["start_run"] != by_name["approve_run"]
+
+    def test_only_the_utility_tool_is_unscoped(self):
+        from app.routers import mcp
+        unscoped = [t["name"] for t in mcp.TOOLS if not t["scope"]]
+        assert unscoped == ["read_url"], "every tool that touches tenant data must carry a scope"
+
+    def test_approve_tool_description_warns_the_model(self):
+        """The description is the only guardrail between an eager agent and a
+        production deploy, so it has to actually say so."""
+        from app.routers import mcp
+        text = next(t for t in mcp.TOOLS if t["name"] == "approve_run")["description"].lower()
+        assert "audit log" in text
+        assert "production" in text
+
+    def test_jsonrpc_error_codes_are_the_standard_ones(self):
+        from app.routers import mcp
+        assert (mcp.PARSE_ERROR, mcp.INVALID_REQUEST, mcp.METHOD_NOT_FOUND,
+                mcp.INVALID_PARAMS, mcp.INTERNAL_ERROR) == (-32700, -32600, -32601, -32602, -32603)

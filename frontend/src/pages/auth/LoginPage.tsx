@@ -1,10 +1,23 @@
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
+import { Building2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
-import api from '@/lib/api'
+import api, { getApiError } from '@/lib/api'
+import { cn } from '@/lib/utils'
+
+/** Errors the SSO callback can bounce back with, in words rather than codes. */
+const SSO_ERRORS: Record<string, string> = {
+  sso_denied: 'Your identity provider cancelled the sign-in.',
+  sso_invalid: 'That sign-in link was incomplete. Please try again.',
+  sso_failed: 'Single sign-on failed. Please try again, or contact your administrator.',
+  sso_domain: 'That account is outside the email domains your organisation has configured.',
+  sso_not_configured: 'Single sign-on is not set up for that email domain.',
+  sso_unavailable: 'Your identity provider could not be reached.',
+}
 
 const schema = z.object({
   email:    z.string().email('Invalid email'),
@@ -15,22 +28,59 @@ type FormData = z.infer<typeof schema>
 export default function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuthStore()
+  const [params] = useSearchParams()
+  const [sso, setSso] = useState<{ label: string; enforced: boolean } | null>(null)
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   })
+
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  const email = watch('email')
+
+  // A failed SSO round trip lands back here with a reason in the query string.
+  useEffect(() => {
+    const error = params.get('error')
+    if (error) toast.error(SSO_ERRORS[error] ?? 'Sign-in failed. Please try again.')
+  }, [params])
+
+  /**
+   * Ask, as the address is typed, whether this domain belongs to an org with
+   * SSO — debounced, because it fires on every keystroke otherwise.
+   *
+   * The endpoint answers only about the *domain*, never about whether the
+   * account exists, so this cannot be used to enumerate users.
+   */
+  useEffect(() => {
+    if (!email || !email.includes('@') || email.endsWith('@')) {
+      setSso(null)
+      return
+    }
+    const timer = setTimeout(() => {
+      api
+        .get('/auth/sso/lookup', { params: { email } })
+        .then((r) => setSso(r.data.sso ? { label: r.data.label, enforced: r.data.enforced } : null))
+        .catch(() => setSso(null))
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [email])
 
   async function onSubmit(data: FormData) {
     try {
       const res = await api.post('/auth/login', data)
       login(res.data.access_token, res.data.user)
       navigate('/dashboard')
-    } catch {
-      toast.error('Invalid email or password')
+    } catch (e) {
+      // A 403 here is the org enforcing SSO, and the message says which
+      // provider to use — showing "invalid password" instead would send
+      // someone to reset a password that was never going to work.
+      toast.error(getApiError(e, 'Invalid email or password'))
     }
   }
 
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  function startSso() {
+    window.location.href = `${apiUrl}/auth/sso/start?email=${encodeURIComponent(email)}`
+  }
 
   return (
     <div>
@@ -85,7 +135,10 @@ export default function LoginPage() {
           {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
         </div>
 
-        <div className="space-y-1.5">
+        {/* Hidden once the org enforces SSO. Leaving a password box on screen
+            next to "you must use Okta" invites people to fill it in and get
+            rejected. */}
+        <div className={cn('space-y-1.5', sso?.enforced && 'hidden')}>
           <label htmlFor="password" className="text-xs font-medium text-foreground uppercase tracking-wide">
             Password
           </label>
@@ -99,13 +152,35 @@ export default function LoginPage() {
           {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
         </div>
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full mt-2 px-4 py-2.5 bg-foreground text-background text-sm font-semibold rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
-        >
-          {isSubmitting ? 'Signing in…' : 'Sign in →'}
-        </button>
+        {/* Appears once the typed domain is recognised. When the org enforces
+            SSO this replaces the password button entirely rather than sitting
+            beside a control that is guaranteed to fail. */}
+        {sso && (
+          <button
+            type="button"
+            onClick={startSso}
+            className="w-full mt-2 flex items-center justify-center gap-2.5 px-4 py-2.5 bg-card border border-border rounded text-sm font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            <Building2 className="h-4 w-4" />
+            Continue with {sso.label}
+          </button>
+        )}
+
+        {!sso?.enforced && (
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full mt-2 px-4 py-2.5 bg-foreground text-background text-sm font-semibold rounded hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {isSubmitting ? 'Signing in…' : 'Sign in →'}
+          </button>
+        )}
+
+        {sso?.enforced && (
+          <p className="text-xs text-muted-foreground text-center">
+            Your organisation requires signing in with {sso.label}.
+          </p>
+        )}
       </form>
 
       <p className="text-sm text-muted-foreground text-center mt-6">

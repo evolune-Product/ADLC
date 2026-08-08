@@ -75,8 +75,8 @@ and the effects that only mean something against near-black — bloom, additive 
 the receding ground grid — are switched off rather than washed out.
 
 `/security` states the platform's posture item by item, each one naming the file it
-lives in, and lists what is **not** in place — no SOC 2, no SSO, no penetration test —
-in the same type as everything else.
+lives in, and lists what is **not** in place — no SOC 2, no SAML, no SCIM, no
+penetration test — in the same type as everything else.
 
 The scene is a lazy chunk that only loads on a WebGL-capable device once the browser
 is idle, and stops rendering when the hero scrolls away. Reduced-motion visitors, and
@@ -215,6 +215,9 @@ MINIO_BUCKET=agentic-sdlc-skills
 JWT_SECRET=your-secret-key
 JWT_EXPIRY_HOURS=24
 FRONTEND_URL=http://localhost:3000
+# Where this API is reachable from outside. The OIDC redirect URI is built from
+# it, and that URI is what customers register with their identity provider.
+API_BASE_URL=http://localhost:8000
 ENCRYPTION_KEY=          # 32-byte Fernet key
 ```
 
@@ -291,6 +294,8 @@ The frontend subscribes to a run room and receives live updates:
 | **Source reading** | URLs in a ticket are fetched, extracted to Markdown (~90% fewer tokens) and scored, so the approver can see how good the brief the plan was built from actually was |
 | **Library** | 14 built-in skills, 6 agent templates, 3 pod templates, publishable marketplace |
 | **Integrations** | GitHub, GitLab, Jira, Linear · Slack, email, signed outbound webhooks |
+| **Enterprise identity** | Per-organisation OIDC SSO (Okta, Entra ID, Google Workspace, Auth0, Keycloak) with PKCE, JWKS verification and optional enforcement that refuses password sign-in |
+| **MCP server** | `POST /mcp` exposes runs, the pending-approval queue and the reader as tools any agent can call — with approval behind its own scope, so a key that starts work cannot wave it through |
 | **Automation** | Public API v1 with scoped API keys — trigger runs from CI, approve from ChatOps |
 
 ---

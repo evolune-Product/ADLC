@@ -14,6 +14,7 @@ import LoginPage from '@/pages/auth/LoginPage'
 import RegisterPage from '@/pages/auth/RegisterPage'
 import GoogleCallbackPage from '@/pages/auth/GoogleCallbackPage'
 import GitHubCallbackPage from '@/pages/auth/GitHubCallbackPage'
+import SsoCallbackPage from '@/pages/auth/SsoCallbackPage'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
 import ConnectionsPage from '@/pages/connections/ConnectionsPage'
 import SkillsPage from '@/pages/skills/SkillsPage'
@@ -149,6 +150,7 @@ export default function App() {
 
             <Route path="/auth/google/callback" element={<GoogleCallbackPage />} />
             <Route path="/auth/github/callback" element={<GitHubCallbackPage />} />
+            <Route path="/auth/sso/callback" element={<SsoCallbackPage />} />
             <Route path="/" element={<LandingPage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/security" element={<SecurityPage />} />

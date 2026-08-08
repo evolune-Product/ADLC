@@ -77,6 +77,12 @@ class Settings(BaseSettings):
 
     # App
     frontend_url: str = "http://localhost:3000"
+    # Where this API is reachable from the public internet. Needed because the
+    # OIDC redirect URI has to point at the *backend* — the code exchange uses
+    # the client secret and must never happen in a browser — and it is the one
+    # value that has to be registered with every customer's identity provider,
+    # so it cannot be guessed from frontend_url.
+    api_base_url: str = "http://localhost:8000"
     encryption_key: str = "12345678901234567890123456789012"
 
 

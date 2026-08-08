@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.user import User
+from app.services import sso_service
+from app.services.encryption import decrypt_token
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -24,6 +27,8 @@ GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
 GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
 GITHUB_USER_URL = "https://api.github.com/user"
 GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -145,6 +150,17 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
+    # Checked before the password, and before we look the user up: an
+    # organisation that has turned on enforcement is saying "this domain signs
+    # in through us", and a password path that still works alongside it is not
+    # enforcement, it is a suggestion.
+    enforced = _sso_for_email(db, body.email)
+    if enforced and enforced.enforced:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Your organisation requires signing in with {enforced.label}.",
+        )
+
     user = db.query(User).filter(User.email == body.email).first()
     if not user or not user.hashed_password:
         raise HTTPException(
@@ -322,3 +338,143 @@ def github_callback(code: str, db: Session = Depends(get_db)):
 
     jwt_token = _create_access_token(user.id)
     return RedirectResponse(f"{settings.frontend_url}/auth/github/callback?token={jwt_token}")
+
+
+# ---------------------------------------------------------------------------
+# Single sign-on (OIDC)
+#
+# Three endpoints, in the order a user meets them:
+#   GET /auth/sso/lookup?email=   does this address belong to an org with SSO?
+#   GET /auth/sso/start?email=    send them to their identity provider
+#   GET /auth/sso/callback        the IdP sends them back here
+#
+# The callback lives on the API rather than the SPA because the code exchange
+# uses the client secret. See services/sso_service.py.
+# ---------------------------------------------------------------------------
+
+def _sso_for_email(db: Session, email: str) -> "SsoConnection | None":
+    """The enabled connection that claims this address's domain, if any."""
+    from app.models.organization import SsoConnection
+    domain = sso_service.domain_of(email or "")
+    if not domain:
+        return None
+    for conn in db.query(SsoConnection).filter(SsoConnection.enabled.is_(True)).all():
+        if domain in [d.lower() for d in (conn.email_domains or [])]:
+            return conn
+    return None
+
+
+@router.get("/sso/lookup")
+def sso_lookup(email: str, db: Session = Depends(get_db)):
+    """
+    Whether to show "Continue with SSO" for this address.
+
+    Deliberately says nothing about whether the *account* exists — only whether
+    the domain is configured. Answering the first question would turn the login
+    page into a user-enumeration oracle.
+    """
+    conn = _sso_for_email(db, email)
+    if not conn:
+        return {"sso": False}
+    return {"sso": True, "label": conn.label, "enforced": conn.enforced}
+
+
+@router.get("/sso/start")
+def sso_start(email: str, db: Session = Depends(get_db)):
+    conn = _sso_for_email(db, email)
+    if not conn:
+        return RedirectResponse(f"{settings.frontend_url}/login?error=sso_not_configured")
+    try:
+        url = sso_service.authorize_url(str(conn.id), conn.issuer, conn.client_id)
+    except sso_service.SsoError as exc:
+        log.warning("SSO start failed for org %s: %s", conn.org_id, exc)
+        return RedirectResponse(f"{settings.frontend_url}/login?error=sso_unavailable")
+    return RedirectResponse(url)
+
+
+@router.get("/sso/callback")
+def sso_callback(
+    db: Session = Depends(get_db),
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    from app.models.organization import OrgMember, SsoConnection
+
+    def fail(reason: str):
+        return RedirectResponse(f"{settings.frontend_url}/login?error={reason}")
+
+    if error:
+        log.info("IdP returned an error: %s (%s)", error, error_description)
+        return fail("sso_denied")
+    if not code or not state:
+        return fail("sso_invalid")
+
+    try:
+        claims_state = sso_service.read_state(state)
+        conn = (
+            db.query(SsoConnection)
+            .filter(SsoConnection.id == uuid.UUID(claims_state["cid"]))
+            .first()
+        )
+        if not conn or not conn.enabled:
+            return fail("sso_not_configured")
+
+        tokens = sso_service.exchange_code(
+            issuer=conn.issuer,
+            client_id=conn.client_id,
+            client_secret=decrypt_token(conn.client_secret),
+            code=code,
+            verifier=claims_state["verifier"],
+        )
+        id_token = tokens.get("id_token")
+        if not id_token:
+            return fail("sso_invalid")
+
+        claims = sso_service.verify_id_token(
+            issuer=conn.issuer, client_id=conn.client_id,
+            id_token=id_token, nonce=claims_state["nonce"],
+        )
+        email, name, picture = sso_service.profile_from(
+            claims, issuer=conn.issuer, access_token=tokens.get("access_token")
+        )
+    except sso_service.SsoError as exc:
+        log.warning("SSO callback failed: %s", exc)
+        return fail("sso_failed")
+    except Exception:
+        log.exception("Unexpected SSO callback failure")
+        return fail("sso_failed")
+
+    # The IdP is authoritative about who someone is; it is not authoritative
+    # about which organisation they may enter. Re-check the domain against the
+    # connection that started this flow, so a misconfigured IdP that will
+    # authenticate anybody cannot become a way into someone else's tenant.
+    if sso_service.domain_of(email) not in [d.lower() for d in (conn.email_domains or [])]:
+        log.warning("SSO identity %s is outside the domains claimed by org %s", email, conn.org_id)
+        return fail("sso_domain")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        # Just-in-time provisioning. No password is set: this account can only
+        # ever be reached through the identity provider that created it.
+        user = User(email=email, name=name, avatar_url=picture)
+        db.add(user)
+        db.flush()
+    elif picture and not user.avatar_url:
+        user.avatar_url = picture
+
+    membership = (
+        db.query(OrgMember)
+        .filter(OrgMember.org_id == conn.org_id, OrgMember.user_id == user.id)
+        .first()
+    )
+    if not membership:
+        db.add(OrgMember(org_id=conn.org_id, user_id=user.id, role=conn.default_role))
+
+    conn.last_login_at = datetime.utcnow()
+    db.commit()
+    db.refresh(user)
+
+    token = _create_access_token(user.id)
+    return RedirectResponse(f"{settings.frontend_url}/auth/sso/callback?token={token}")

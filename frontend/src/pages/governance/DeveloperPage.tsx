@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Copy, KeyRound, Plus, Trash2, Webhook } from 'lucide-react'
+import { Copy, KeyRound, Plug, Plus, Trash2, Webhook } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -154,6 +154,61 @@ curl -X POST ${apiBase}/v1/runs \\
 # Poll it
 curl ${apiBase}/v1/runs/<run_id> -H "Authorization: Bearer adlc_live_…"`}</pre>
         </details>
+      </div>
+
+      {/* ── MCP ──────────────────────────────────────────────────────────── */}
+      <div className="bg-card rounded-lg border border-border p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Plug className="h-4 w-4" />
+          <p className="font-medium">MCP server</p>
+        </div>
+
+        <p className="text-sm text-muted-foreground">
+          Point Claude Code, Cursor, Continue or any other MCP client at ADLC and it can list
+          runs, start them, see what is waiting at the approval gate, and read a URL as clean
+          Markdown. It authenticates with the same API keys above — so a client only gets the
+          scopes you minted the key with.
+        </p>
+
+        <CodeLine value={`${apiBase}/mcp`} />
+
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted-foreground">Client configuration</summary>
+          <pre className="mt-2 bg-muted rounded p-3 text-xs overflow-x-auto">{`{
+  "mcpServers": {
+    "adlc": {
+      "url": "${apiBase}/mcp",
+      "headers": { "Authorization": "Bearer adlc_live_…" }
+    }
+  }
+}`}</pre>
+        </details>
+
+        <div className="rounded-md border border-border p-3">
+          <p className="onto-label mb-2">Tools</p>
+          <div className="grid gap-1.5 sm:grid-cols-2">
+            {[
+              ['list_projects', 'projects:read'],
+              ['list_runs', 'runs:read'],
+              ['get_run', 'runs:read'],
+              ['start_run', 'runs:write'],
+              ['list_pending_approvals', 'runs:read'],
+              ['approve_run', 'runs:approve'],
+              ['read_url', 'any key'],
+            ].map(([tool, scope]) => (
+              <div key={tool} className="flex items-baseline justify-between gap-3 text-xs">
+                <code className="font-mono">{tool}</code>
+                <span className="text-muted-foreground shrink-0">{scope}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          An agent holding a <code>runs:write</code> key can start work and cannot approve it.
+          Handing one a key with <code>runs:approve</code> lets it authorise a production deploy,
+          recorded in the audit log against that key — do that deliberately or not at all.
+        </p>
       </div>
 
       {/* ── Webhooks ─────────────────────────────────────────────────────── */}
