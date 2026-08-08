@@ -288,6 +288,7 @@ The frontend subscribes to a run room and receives live updates:
 | **Model agility** | Anthropic / OpenAI / Azure / OpenAI-compatible / Ollama, per-workspace bring-your-own key |
 | **Insight** | Cycle time, approval latency, cost per merged run, hours saved, agent scorecards, CSV export |
 | **Memory** | Repo indexing, embedding retrieval into agent prompts, human notes, merged-PR write-back |
+| **Source reading** | URLs in a ticket are fetched, extracted to Markdown (~90% fewer tokens) and scored, so the approver can see how good the brief the plan was built from actually was |
 | **Library** | 14 built-in skills, 6 agent templates, 3 pod templates, publishable marketplace |
 | **Integrations** | GitHub, GitLab, Jira, Linear · Slack, email, signed outbound webhooks |
 | **Automation** | Public API v1 with scoped API keys — trigger runs from CI, approve from ChatOps |

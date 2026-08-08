@@ -10,6 +10,7 @@ import { useRunStore } from '@/stores/runStore'
 import { getSocket, connectSocket, joinRunRoom, leaveRunRoom } from '@/lib/socket'
 import PrDiffViewer from '@/components/runs/PrDiffViewer'
 import ReviewFindings from '@/components/runs/ReviewFindings'
+import SourceReads from '@/components/runs/SourceReads'
 import FeedbackWidget from '@/components/runs/FeedbackWidget'
 import type { RunStep, DeployTarget } from '@/types'
 
@@ -454,6 +455,11 @@ export default function RunDetailPage() {
           />
         )}
       </div>
+
+      {/* What the agents read from outside the repo. Above the reviewer on
+          purpose: an approver reading top-down should see what the plan was
+          built from before they see the verdict on what was built. */}
+      <SourceReads runId={run.id} />
 
       {/* Reviewer agent verdict — what the approval policy gates on */}
       <ReviewFindings runId={run.id} />

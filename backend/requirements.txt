@@ -21,6 +21,16 @@ bcrypt==4.0.1
 # Async HTTP
 httpx==0.27.2
 
+# Source reading — turning a URL an agent was given into Markdown it can afford
+# to read. readability-lxml is the same extraction algorithm (Mozilla
+# Readability) the AgentRead engine this was ported from uses.
+readability-lxml==0.8.1
+lxml==5.3.0
+# lxml 5 moved lxml.html.clean into its own distribution; readability-lxml still
+# imports it, so it has to be named explicitly or the import fails at runtime.
+lxml-html-clean==0.4.1
+markdownify==0.14.1
+
 # Queue / cache
 celery[gevent]==5.4.0
 redis==5.2.0

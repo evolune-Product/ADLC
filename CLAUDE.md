@@ -241,6 +241,7 @@ GET    /analytics/summary          GET    /analytics/timeseries
 GET    /analytics/agents           GET    /analytics/export.csv
 GET    /deployments                POST   /deployments/:id/rollback
 GET    /runs/:id/findings          GET/POST /runs/:id/feedback
+GET    /runs/:id/sources           ← external URLs the agents read, and how well
 
 GET/POST   /policies               PUT/DELETE /policies/:id
 GET/POST   /apikeys                DELETE /apikeys/:id
@@ -541,6 +542,38 @@ off, for form controls and scrollbars).
 Where the toggle lives: marketing nav (desktop + mobile), auth footer, dashboard
 topbar, and Settings → Appearance.
 
+## Source Reading (the AgentRead engine, ported)
+
+Tickets link out — a Notion spec, an RFC, a vendor's API docs. The Planner used
+to see a bare URL string. It now reads them.
+
+```
+backend/app/services/reader_service.py     ← fetch → extract → Markdown → score
+backend/app/agents/_common.py::read_sources← per-agent helper; writes SourceRead rows
+backend/app/models/insight.py::SourceRead  ← one row per URL, success or failure
+migrations/versions/e3f4a5b6c7d8_source_reads.py
+frontend/src/components/runs/SourceReads.tsx
+```
+
+- **`reader_service` is a port of `~/Desktop/agentread-main/src/lib/engine/read.ts`.**
+  Same extraction pipeline (Readability → Markdown), same six ReadScore
+  deductions with the same weights (15/10/20/15/8/7/25), same risk thresholds
+  (≥75 low, ≥55 medium). That file is the source of truth; `TestSourceReaderScoring`
+  in `tests/test_platform_units.py` pins the constants so a drift fails a test
+  rather than a customer's run. Measured ~91% token reduction on real docs pages.
+- **The SSRF guard is not optional and has no equivalent upstream.** AgentRead is
+  a public tool where the user fetching a URL is the user who typed it. This is
+  an authenticated backend inside a perimeter that can reach Postgres, Redis and
+  MinIO. `_assert_public_url` rejects private/loopback/link-local/reserved
+  addresses **by resolved IP**, and redirects are followed one hop at a time so
+  the guard runs on every destination. Never swap that for
+  `follow_redirects=True`.
+- **A bad read is never fatal.** A dead link costs the plan one source and
+  leaves a `SourceRead` row saying why. The score is advisory in exactly the way
+  `ReviewFinding` is — only an `ApprovalPolicy` can block a deploy.
+- **The score travels into the prompt.** A page that read badly is handed to the
+  model with a caveat telling it to flag the gap rather than invent the detail.
+
 ## Marketing Surface (`/`, `/pricing`, `/security`)
 
 A public, WebGL-driven marketing site, deliberately separate from the product UI.
@@ -650,7 +683,7 @@ Rules that matter:
 10. **Orange accent `#E8632A`**: Only accent color in the design — use for pending states, CTA highlights, brand moments
 11. **Never pass `temperature`/`top_p`/`top_k` to Anthropic** — current Claude models reject them with a 400. `llm_service` only forwards sampling params to OpenAI-shaped providers.
 12. **Money is integers**: `cost_millicents` (1 cent = 1000) and `price_cents`. No floats anywhere in the billing path.
-13. **Every agent LLM call goes through `llm_service.complete()`** — that is what makes BYO-keys, cost attribution and budget caps work. A direct `anthropic.Anthropic()` call bypasses metering.
+13. **Every agent LLM call goes through `llm_service.complete()`** — that is what makes BYO-keys, cost attribution and budget caps work. A direct `anthropic.Anthropic()` call bypasses metering. (`sprint_agent` was doing exactly this until Aug 2026, so the first call of *every* run was unmetered and un-cappable. Use `_common.call_llm`.)
 14. **Memory embeddings are JSONB, not pgvector** — stock Postgres 15 works. Swap point is `memory_service.retrieve()`.
 15. **Stripe is optional**: with no `STRIPE_SECRET_KEY`, `/billing/checkout` applies the plan directly and returns `simulated: true`.
 16. **Review is advisory; policy is enforcement** — `review_agent` never fails a run, only an `ApprovalPolicy` can block a deploy.

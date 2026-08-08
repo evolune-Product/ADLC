@@ -278,3 +278,97 @@ class TestTemplateLibrary:
         pod = next(t for t in all_templates() if t["slug"] == "standard-sdlc-pod")
         order = {s["role"]: s["execution_order"] for s in pod["payload"]["agents"]}
         assert order["reviewer"] < order["devops"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Source reader
+#
+# The scoring half is a port of AgentRead's read.ts and is asserted against the
+# same weights, so a drift in either direction shows up here rather than in a
+# customer's run trace.
+#
+# The URL-safety half matters more than the scoring. This service fetches
+# arbitrary user-supplied URLs from inside the perimeter, which is textbook SSRF
+# territory — these tests are the guard's regression suite.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestSourceReaderUrlSafety:
+    def test_private_and_local_addresses_are_refused(self):
+        from app.services import reader_service as r
+        blocked = [
+            "http://localhost:8000/",
+            "http://127.0.0.1/",
+            "http://10.0.0.5/internal",
+            "http://192.168.1.1/",
+            "http://172.16.0.1/",
+            # The cloud metadata endpoint — the single most valuable SSRF target
+            # there is, and the reason this guard exists at all.
+            "http://169.254.169.254/latest/meta-data/",
+        ]
+        for url in blocked:
+            with pytest.raises(r.ReadError):
+                r._assert_public_url(r.normalize_url(url))
+
+    def test_non_http_schemes_are_refused(self):
+        from app.services import reader_service as r
+        for url in ["file:///etc/passwd", "gopher://x/", "ftp://example.com/"]:
+            with pytest.raises(r.ReadError):
+                r.normalize_url(url)
+
+    def test_bare_host_is_upgraded_to_https(self):
+        from app.services import reader_service as r
+        assert r.normalize_url("example.com").startswith("https://")
+
+    def test_empty_url_is_refused(self):
+        from app.services import reader_service as r
+        with pytest.raises(r.ReadError):
+            r.normalize_url("   ")
+
+
+class TestSourceReaderUrlExtraction:
+    def test_finds_urls_in_order_without_duplicates(self):
+        from app.services.reader_service import extract_urls
+        text = "See https://a.example/spec and https://b.example/x, then https://a.example/spec again."
+        assert extract_urls(text) == ["https://a.example/spec", "https://b.example/x"]
+
+    def test_trailing_sentence_punctuation_is_not_part_of_the_url(self):
+        from app.services.reader_service import extract_urls
+        assert extract_urls("Read https://a.example/page.") == ["https://a.example/page"]
+
+    def test_assets_and_badges_are_skipped(self):
+        """Reading a PNG or a build badge back costs tokens and returns nothing."""
+        from app.services.reader_service import extract_urls
+        text = ("https://x.example/logo.png https://img.shields.io/badge/a "
+                "https://x.example/real-doc")
+        assert extract_urls(text) == ["https://x.example/real-doc"]
+
+    def test_the_limit_is_enforced(self):
+        from app.services.reader_service import extract_urls
+        text = " ".join(f"https://e{i}.example/p" for i in range(20))
+        assert len(extract_urls(text, limit=3)) == 3
+
+    def test_no_urls_is_an_empty_list_not_an_error(self):
+        from app.services.reader_service import extract_urls
+        assert extract_urls("A ticket with no links at all.") == []
+        assert extract_urls("") == []
+
+
+class TestSourceReaderScoring:
+    """The weights, held to the values in agentread-main/src/lib/engine/read.ts."""
+
+    def test_penalty_weights_match_the_source_engine(self):
+        from app.services import reader_service as r
+        assert (r.PENALTY_LOW_REDUCTION, r.PENALTY_SCRIPT_HEAVY, r.PENALTY_JS_ONLY_PRICE,
+                r.PENALTY_DISABLED_CTA, r.PENALTY_LAZY_CONTENT, r.PENALTY_NO_LLMS_TXT,
+                r.PENALTY_THIN_CONTENT) == (15, 10, 20, 15, 8, 7, 25)
+
+    def test_risk_thresholds_match_the_source_engine(self):
+        from app.services import reader_service as r
+        assert (r.RISK_LOW_AT, r.RISK_MEDIUM_AT) == (75, 55)
+
+    def test_token_estimate_is_four_chars_per_token(self):
+        from app.services.reader_service import estimate_tokens
+        assert estimate_tokens("x" * 400) == 100
+        # Never zero: a costed thing that estimates as free is worse than a
+        # rough estimate.
+        assert estimate_tokens("") == 1

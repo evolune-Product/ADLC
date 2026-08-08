@@ -11,7 +11,7 @@ import api, { getApiError } from '@/lib/api'
 import type {
   AgentScore, AnalyticsPoint, AnalyticsSummary, ApiKeyRecord, ApprovalPolicy,
   BillingState, DeploymentRecord, MemoryHit, MemoryStatus, Notification,
-  NotificationSettings, Plan, ReviewResult, Template, WebhookDelivery, WebhookRecord,
+  NotificationSettings, Plan, ReviewResult, SourceReadResult, Template, WebhookDelivery, WebhookRecord,
   ComplianceControl,
 } from '@/types/platform'
 
@@ -181,6 +181,14 @@ export function useRunFindings(runId: string) {
   return useQuery<ReviewResult>({
     queryKey: ['runs', runId, 'findings'],
     queryFn: () => api.get(`/runs/${runId}/findings`).then((r) => r.data),
+    enabled: !!runId,
+  })
+}
+
+export function useRunSources(runId: string) {
+  return useQuery<SourceReadResult>({
+    queryKey: ['runs', runId, 'sources'],
+    queryFn: () => api.get(`/runs/${runId}/sources`).then((r) => r.data),
     enabled: !!runId,
   })
 }

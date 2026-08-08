@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.insight import Deployment, ReviewFinding, RunFeedback
+from app.models.insight import Deployment, ReviewFinding, RunFeedback, SourceRead
 from app.models.project import Project
 from app.models.run import Run
 from app.models.user import User
@@ -176,6 +176,70 @@ def run_findings(
                 "message": r.message,
                 "suggestion": r.suggestion,
                 "posted_to_vcs": r.posted_to_vcs,
+            }
+            for r in rows
+        ],
+    }
+
+
+# ── Source reads ──────────────────────────────────────────────────────────────
+
+@router.get("/runs/{run_id}/sources")
+def run_sources(
+    run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    """
+    What the agents read from outside the repository on this run, and how well.
+
+    This sits next to the review findings on purpose. Both answer a question the
+    approver has to be able to ask at the gate: findings say "is the code any
+    good", this says "was the brief the code was written from any good". A plan
+    built off a page that turned out to be a bot wall is not a code-quality
+    problem, and nothing else in the run trace would show it.
+    """
+    _assert_run_access(db, run_id, current_user, org_ctx)
+    rows = (
+        db.query(SourceRead)
+        .filter(SourceRead.run_id == run_id)
+        .order_by(SourceRead.created_at.asc())
+        .all()
+    )
+
+    ok = [r for r in rows if r.status == "ok"]
+    # Totals are summed from the rows rather than stored, so the figure on
+    # screen is always re-derivable from the evidence beneath it.
+    tokens_before = sum(r.tokens_before for r in ok)
+    tokens_after = sum(r.tokens_after for r in ok)
+
+    return {
+        "count": len(rows),
+        "failed": len(rows) - len(ok),
+        # The weakest read is the one that matters: an average would hide a
+        # single unreadable page behind four clean ones.
+        "worst_score": min((r.read_score for r in ok if r.read_score is not None), default=None),
+        "tokens_before": tokens_before,
+        "tokens_after": tokens_after,
+        "tokens_saved": max(0, tokens_before - tokens_after),
+        "sources": [
+            {
+                "id": str(r.id),
+                "url": r.url,
+                "title": r.title,
+                "agent_role": r.agent_role,
+                "status": r.status,
+                "error": r.error,
+                "read_score": r.read_score,
+                "hallucination_risk": r.hallucination_risk,
+                "html_bytes": r.html_bytes,
+                "markdown_bytes": r.markdown_bytes,
+                "tokens_before": r.tokens_before,
+                "tokens_after": r.tokens_after,
+                "flags": r.flags or [],
+                "latency_ms": r.latency_ms,
+                "cached": r.cached,
             }
             for r in rows
         ],

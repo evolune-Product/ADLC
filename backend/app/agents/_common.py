@@ -135,3 +135,78 @@ def start_step(run_id, step_name: str, agent_role: str, db: Session) -> None:
     if run:
         run.current_step = f"{agent_role}:{step_name}"
         db.commit()
+
+
+def read_sources(db: Session, *, run_id, agent_role: str, text: str,
+                 limit: int = 3) -> str:
+    """
+    Read the URLs a ticket points at, and return them as a prompt block.
+
+    A ticket that says "implement per the spec" and pastes a link used to give
+    the agent a bare string. Fetching the raw page instead is not the fix — a
+    typical page is ~800 kB of HTML wrapping ~8 kB of content, and this platform
+    pays for every byte of that in tokens. So each URL goes through
+    `reader_service`, which extracts the article and returns Markdown; on the
+    docs pages this was tested against that is a ~90% token reduction.
+
+    Every attempt is recorded as a `SourceRead` — successes *and* failures —
+    because the run trace at the approval gate needs to show what the agent was
+    actually working from. A page that turned out to be a bot wall is exactly
+    the thing an approver should see before they approve a plan built on it.
+
+    Failures are never fatal. If a link is dead, the agent plans without it and
+    the row says so.
+    """
+    from app.models.insight import SourceRead
+    from app.services import reader_service
+
+    urls = reader_service.extract_urls(text or "", limit=limit)
+    if not urls:
+        return ""
+
+    blocks: list[str] = []
+    for url in urls:
+        row = SourceRead(id=uuid.uuid4(), run_id=run_id, agent_role=agent_role, url=url)
+        try:
+            result = reader_service.read_url(url)
+        except Exception as exc:                      # noqa: BLE001 — see docstring
+            log.info("Source read failed for %s: %s", url, exc)
+            row.status = "failed"
+            row.error = str(exc)[:500]
+            db.add(row)
+            continue
+
+        row.status = "ok"
+        row.title = result.title[:500]
+        row.read_score = result.read_score
+        row.hallucination_risk = result.hallucination_risk
+        row.html_bytes = result.html_bytes
+        row.markdown_bytes = result.markdown_bytes
+        row.tokens_before = result.tokens_before
+        row.tokens_after = result.tokens_after
+        row.flags = [f.as_dict() for f in result.flags]
+        row.latency_ms = result.latency_ms
+        row.cached = result.cached
+        db.add(row)
+
+        # The score travels with the content into the prompt, so the model is
+        # told how much to trust what it is about to read rather than being
+        # handed a degraded page as if it were the spec.
+        caveat = ""
+        if result.hallucination_risk != "low":
+            caveat = (
+                f"\n> This page did not read cleanly (score {result.read_score}/100). "
+                "Treat details from it as unconfirmed, and say so in your plan "
+                "rather than inventing specifics.\n"
+            )
+        blocks.append(
+            f"### Source: {result.title}\n"
+            f"<{result.url}>{caveat}\n"
+            f"{result.markdown[:12000]}\n"
+        )
+
+    db.commit()
+
+    if not blocks:
+        return ""
+    return "\n## Linked sources\n\n" + "\n---\n".join(blocks)

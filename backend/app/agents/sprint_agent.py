@@ -1,54 +1,43 @@
 """
-Sprint Agent — reads ticket + skill MDs + project context, produces sprint plan.
-"""
-import time
-import uuid
-from datetime import datetime, timezone
+Sprint Agent — turns a ticket into a file-level implementation plan.
 
-import anthropic
+Two things this node does that the others do not:
+
+**It reads what the ticket points at.** Real tickets say "implement per the
+spec" and paste a link — a Notion page, an RFC, a vendor's API docs. Until this
+agent could open those, it was planning around a bare URL string. It now reads
+them through `reader_service`, which extracts the article and hands over
+Markdown instead of ~800 kB of page furniture, and records how well each read
+went so the person at the approval gate can see what the plan was built from.
+
+**It is metered.** This node used to call `anthropic.Anthropic()` directly,
+which meant the first LLM call of every single run bypassed cost attribution,
+BYO-key routing and the per-run budget cap entirely — a run could not be
+stopped before its planning spend, and the spend never appeared on the bill.
+Everything now goes through `_common.call_llm`, like every other agent.
+"""
+from __future__ import annotations
+
+import logging
+import time
+
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.agents._common import (build_system_prompt, call_llm, find_agent,
+                                read_sources, start_step, write_step)
 from app.models.agent import Agent
-from app.models.run import Run, RunStep
-from app.models.skill import Skill
 from app.services.notification_service import emit_run_event
 
+log = logging.getLogger(__name__)
 
-def _find_agent(pod_agents: list, role: str, db: Session) -> Agent | None:
-    for pa in pod_agents:
-        if pa.get("agent_role") == role:
-            agent = db.query(Agent).filter(Agent.id == pa["agent_id"]).first()
-            if agent:
-                return agent
-    # fallback: first agent in pod
-    if pod_agents:
-        return db.query(Agent).filter(Agent.id == pod_agents[0]["agent_id"]).first()
-    return None
+# Enough for a spec page or two without letting a link-heavy ticket dominate the
+# context window — the ticket itself is still the brief.
+MAX_SOURCES = 3
 
-
-def _build_system_prompt(agent: Agent, project: dict, ticket: dict) -> str:
-    parts = ["You are an expert Sprint Planning Agent responsible for breaking down software tickets into clear, actionable implementation plans.\n"]
-
-    # Inject skill MDs
-    if agent.agent_skills:
-        parts.append("## Your Skills & Context\n")
-        for binding in sorted(agent.agent_skills, key=lambda x: x.priority):
-            skill = binding.skill
-            if skill and skill.md_content:
-                parts.append(f"### {skill.name}\n{skill.md_content}\n")
-
-    # Project context
-    if project.get("context_md"):
-        parts.append(f"\n## Project Context\n{project['context_md']}\n")
-
-    parts.append(f"\n## Project: {project.get('name', 'Unknown')}")
-    if project.get("repo_name"):
-        parts.append(f"\nRepository: {project['repo_name']}")
-    if project.get("type"):
-        parts.append(f"\nType: {project['type']}")
-
-    return "\n".join(parts)
+_ROLE_INTRO = (
+    "You are an expert Sprint Planning Agent responsible for breaking down "
+    "software tickets into clear, actionable implementation plans."
+)
 
 
 def run_sprint_agent(state: dict, db: Session) -> dict:
@@ -59,62 +48,73 @@ def run_sprint_agent(state: dict, db: Session) -> dict:
 
     start_ms = int(time.time() * 1000)
 
-    # Find sprint agent
-    agent = _find_agent(pod_agents, "sprint", db)
+    agent = find_agent(pod_agents, "sprint", db)
+    if not agent and pod_agents:
+        # Falling back to the pod's first agent keeps a single-agent pod
+        # working; a pod with no agents at all is a configuration error.
+        agent = db.query(Agent).filter(Agent.id == pod_agents[0]["agent_id"]).first()
     if not agent:
         error = "No sprint agent found in pod"
-        _write_step(db, run_id, None, "sprint", "create_plan", "failed",
-                    {}, {}, error, 0)
+        write_step(db, run_id, None, "sprint", "create_plan", "failed", {}, {}, error, 0)
         return {**state, "status": "failed", "errors": state.get("errors", []) + [error]}
 
-    emit_run_event(run_id, "run:step:started", {
-        "runId": run_id, "stepName": "create_plan", "agentRole": "sprint"
-    })
+    start_step(run_id, "create_plan", "sprint", db)
 
-    # Update run current_step
-    run = db.query(Run).filter(Run.id == run_id).first()
-    if run:
-        run.current_step = "sprint:create_plan"
-        db.commit()
+    title = ticket.get("title", "")
+    description = ticket.get("description") or "No description provided."
 
-    # Build prompt
-    system = _build_system_prompt(agent, project, ticket)
+    system = build_system_prompt(
+        agent, project, role_intro=_ROLE_INTRO, db=db,
+        memory_query=f"{title}\n{description}",
+    )
+
+    # Read before prompting, so the sources are context rather than something
+    # the model is told to imagine. Never fatal: a dead link costs the plan one
+    # source and leaves a row saying why.
+    sources = read_sources(
+        db, run_id=run_id, agent_role="sprint",
+        text=f"{description}\n{project.get('context_md') or ''}",
+        limit=MAX_SOURCES,
+    )
+    if sources:
+        system = f"{system}\n{sources}"
+
     user_msg = (
         f"Create a detailed sprint plan for this ticket:\n\n"
         f"**Ticket ID:** {ticket.get('jira_id', 'N/A')}\n"
-        f"**Title:** {ticket.get('title', '')}\n"
+        f"**Title:** {title}\n"
         f"**Type:** {ticket.get('type', '')}\n"
         f"**Priority:** {ticket.get('priority', '')}\n"
-        f"**Description:**\n{ticket.get('description', 'No description provided.')}\n\n"
+        f"**Description:**\n{description}\n\n"
         "Your sprint plan must include:\n"
         "1. Summary of what needs to be implemented\n"
         "2. List of files to create or modify (with full paths)\n"
         "3. Step-by-step implementation guide\n"
         "4. Edge cases and error handling to consider\n"
         "5. Suggested branch name (format: agent/{ticket_id}-{short-slug})\n\n"
-        "Be specific and actionable. The Dev agent will implement exactly what you specify."
+        "Be specific and actionable. The Dev agent will implement exactly what you specify.\n"
+        "If a linked source could not be read cleanly, plan around the gap and say so "
+        "explicitly — do not invent the detail it would have contained."
     )
 
     try:
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=agent.llm_model or "claude-sonnet-4-6",
-            max_tokens=4096,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
+        result = call_llm(
+            db, run_id=run_id, agent=agent, agent_role="sprint",
+            system=system, user=user_msg, max_tokens=4096,
         )
-        sprint_plan = response.content[0].text
+        sprint_plan = result.text
         duration_ms = int(time.time() * 1000) - start_ms
 
         emit_run_event(run_id, "run:step:log", {
-            "runId": run_id, "stepName": "create_plan", "log": sprint_plan[:500] + "..."
+            "runId": str(run_id), "stepName": "create_plan",
+            "log": sprint_plan[:500] + "...",
         })
 
-        _write_step(db, run_id, str(agent.id), "sprint", "create_plan", "success",
-                    {"ticket": ticket}, {"sprint_plan": sprint_plan}, sprint_plan, duration_ms)
+        write_step(db, run_id, str(agent.id), "sprint", "create_plan", "success",
+                   {"ticket": ticket}, {"sprint_plan": sprint_plan}, sprint_plan, duration_ms)
 
         emit_run_event(run_id, "run:step:completed", {
-            "runId": run_id, "stepName": "create_plan", "status": "success"
+            "runId": str(run_id), "stepName": "create_plan", "status": "success",
         })
 
         return {**state, "sprint_plan": sprint_plan, "current_agent": "dev"}
@@ -122,26 +122,9 @@ def run_sprint_agent(state: dict, db: Session) -> dict:
     except Exception as e:
         duration_ms = int(time.time() * 1000) - start_ms
         error = f"Sprint agent error: {str(e)}"
-        _write_step(db, run_id, str(agent.id) if agent else None, "sprint", "create_plan",
-                    "failed", {}, {}, error, duration_ms)
-        emit_run_event(run_id, "run:step:failed", {"runId": run_id, "stepName": "create_plan", "error": error})
+        log.exception("Sprint agent failed for run %s", run_id)
+        write_step(db, run_id, str(agent.id) if agent else None, "sprint", "create_plan",
+                   "failed", {}, {}, error, duration_ms)
+        emit_run_event(run_id, "run:step:failed",
+                       {"runId": str(run_id), "stepName": "create_plan", "error": error})
         return {**state, "status": "failed", "errors": state.get("errors", []) + [error]}
-
-
-def _write_step(db: Session, run_id: str, agent_id: str | None, agent_role: str,
-                step_name: str, status: str, input_: dict, output: dict,
-                log: str | None, duration_ms: int):
-    step = RunStep(
-        id=uuid.uuid4(),
-        run_id=run_id,
-        agent_id=agent_id,
-        agent_role=agent_role,
-        step_name=step_name,
-        status=status,
-        input=input_,
-        output=output,
-        log=log,
-        duration_ms=duration_ms,
-    )
-    db.add(step)
-    db.commit()

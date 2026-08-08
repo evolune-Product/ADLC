@@ -15,7 +15,7 @@ from app.models.notification import Notification, NotificationSetting
 from app.models.governance import ApprovalPolicy, ApiKey, Webhook, WebhookDelivery
 from app.models.catalog import Template, MarketplaceListing, MarketplaceInstall
 from app.models.memory import MemoryChunk, MemoryIndex
-from app.models.insight import ReviewFinding, RunFeedback, Deployment
+from app.models.insight import ReviewFinding, RunFeedback, Deployment, SourceRead
 
 __all__ = [
     "User", "Organization", "OrgMember", "OrgInvitation",
@@ -27,5 +27,5 @@ __all__ = [
     "ApprovalPolicy", "ApiKey", "Webhook", "WebhookDelivery",
     "Template", "MarketplaceListing", "MarketplaceInstall",
     "MemoryChunk", "MemoryIndex",
-    "ReviewFinding", "RunFeedback", "Deployment",
+    "ReviewFinding", "RunFeedback", "Deployment", "SourceRead",
 ]

@@ -148,6 +148,40 @@ export interface ReviewResult {
   findings: ReviewFinding[]
 }
 
+// ─── Source reads ────────────────────────────────────────────────────────────
+// What the agents read from outside the repository, and how well that read went.
+// The sibling of ReviewFinding: findings ask whether the code is any good, this
+// asks whether the brief it was written from was any good.
+
+export interface SourceRead {
+  id: string
+  url: string
+  title: string | null
+  agent_role: string | null
+  status: 'ok' | 'failed' | 'skipped'
+  error: string | null
+  read_score: number | null
+  hallucination_risk: 'low' | 'medium' | 'high' | null
+  html_bytes: number
+  markdown_bytes: number
+  tokens_before: number
+  tokens_after: number
+  flags: Array<{ severity: 'high' | 'medium' | 'low' | 'ok'; text: string }>
+  latency_ms: number
+  cached: boolean
+}
+
+export interface SourceReadResult {
+  count: number
+  failed: number
+  /** The weakest read on the run — an average would hide one bad page behind four good ones. */
+  worst_score: number | null
+  tokens_before: number
+  tokens_after: number
+  tokens_saved: number
+  sources: SourceRead[]
+}
+
 // ─── Governance ──────────────────────────────────────────────────────────────
 export interface ApprovalPolicy {
   id: string
