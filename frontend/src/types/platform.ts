@@ -240,6 +240,41 @@ export interface ComplianceControl {
   evidence: string
 }
 
+// ─── Sprint planning ──────────────────────────────────────────────────────────
+export type SprintHealth = 'on_track' | 'at_risk' | 'blocked'
+
+export interface BacklogTicket {
+  id: string
+  jira_id: string
+  title: string
+  type: string | null
+  priority: string | null
+}
+
+export interface TicketEstimate {
+  id: string
+  ticket_id: string
+  jira_id: string
+  title: string
+  story_points: number
+  complexity_reasoning: string | null
+  depends_on: string[]
+  included_in_sprint: boolean
+  risk: SprintHealth
+}
+
+export interface SprintPlan {
+  id: string
+  project_id: string
+  capacity_points: number
+  committed_points: number
+  health: SprintHealth
+  summary: string | null
+  written_back: boolean
+  created_at: string
+  estimates: TicketEstimate[]
+}
+
 // ─── Catalog / marketplace ───────────────────────────────────────────────────
 export type TemplateKind = 'skill' | 'agent' | 'pod'
 

@@ -10,8 +10,8 @@ import { toast } from 'sonner'
 import api, { getApiError } from '@/lib/api'
 import type {
   AgentScore, AnalyticsPoint, AnalyticsSummary, ApiKeyRecord, ApprovalPolicy,
-  BillingState, DeploymentRecord, MemoryHit, MemoryStatus, Notification,
-  NotificationSettings, Plan, ReviewResult, SourceReadResult, Template, WebhookDelivery, WebhookRecord,
+  BacklogTicket, BillingState, DeploymentRecord, MemoryHit, MemoryStatus, Notification,
+  NotificationSettings, Plan, ReviewResult, SourceReadResult, SprintPlan, Template, WebhookDelivery, WebhookRecord,
   ComplianceControl,
 } from '@/types/platform'
 
@@ -401,5 +401,49 @@ export function useAddMemoryNote(projectId: string) {
       toast.success('Note added to project memory')
     },
     onError: err('Could not add the note'),
+  })
+}
+
+// ═══ Sprint planning ══════════════════════════════════════════════════════════
+
+export function useSprintPlan(projectId: string) {
+  return useQuery<SprintPlan | null>({
+    queryKey: ['sprint-plan', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/sprint-plan`).then((r) => r.data),
+    enabled: !!projectId,
+  })
+}
+
+export function useSprintBacklog(projectId: string) {
+  return useQuery<{ count: number; tickets: BacklogTicket[] }>({
+    queryKey: ['sprint-backlog', projectId],
+    queryFn: () => api.get(`/projects/${projectId}/sprint-plan/backlog`).then((r) => r.data),
+    enabled: !!projectId,
+  })
+}
+
+export function useGenerateSprintPlan(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { capacity_points: number; write_back: boolean }) =>
+      api.post(`/projects/${projectId}/sprint-plan`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sprint-plan', projectId] })
+      toast.success('Sprint plan generated')
+    },
+    onError: err('Could not generate a sprint plan'),
+  })
+}
+
+export function useWriteBackSprintPlan(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (planId: string) =>
+      api.post(`/projects/${projectId}/sprint-plan/${planId}/write-back`).then((r) => r.data),
+    onSuccess: (data: { posted: number }) => {
+      qc.invalidateQueries({ queryKey: ['sprint-plan', projectId] })
+      toast.success(`Posted ${data.posted} estimate comment${data.posted === 1 ? '' : 's'}`)
+    },
+    onError: err('Could not write estimates back'),
   })
 }

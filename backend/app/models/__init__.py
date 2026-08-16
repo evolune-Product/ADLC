@@ -16,6 +16,7 @@ from app.models.governance import ApprovalPolicy, ApiKey, Webhook, WebhookDelive
 from app.models.catalog import Template, MarketplaceListing, MarketplaceInstall
 from app.models.memory import MemoryChunk, MemoryIndex
 from app.models.insight import ReviewFinding, RunFeedback, Deployment, SourceRead
+from app.models.sprint import SprintPlan, TicketEstimate
 
 __all__ = [
     "User", "Organization", "OrgMember", "OrgInvitation", "SsoConnection",
@@ -28,4 +29,5 @@ __all__ = [
     "Template", "MarketplaceListing", "MarketplaceInstall",
     "MemoryChunk", "MemoryIndex",
     "ReviewFinding", "RunFeedback", "Deployment", "SourceRead",
+    "SprintPlan", "TicketEstimate",
 ]

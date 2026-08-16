@@ -258,6 +258,11 @@ GET    /projects/:id/memory        POST   /projects/:id/memory/index
 POST   /projects/:id/memory/search GET    /projects/:id/memory/chunks
 POST   /projects/:id/memory/notes  DELETE /projects/:id/memory
 
+GET    /projects/:id/sprint-plan            ← latest plan, or null
+GET    /projects/:id/sprint-plan/backlog    ← unstarted tickets
+POST   /projects/:id/sprint-plan            ← generate (capacity_points, write_back)
+POST   /projects/:id/sprint-plan/:planId/write-back
+
 ── SSO (OIDC, per organisation) ────────────────────────────────────────────
 GET    /auth/sso/lookup            GET    /auth/sso/start
 GET    /auth/sso/callback
@@ -268,6 +273,7 @@ POST   /mcp                        ← initialize · tools/list · tools/call ·
 
 ── Public API (Bearer adlc_live_… , scoped) ────────────────────────────────
 GET    /v1/whoami                  GET    /v1/projects
+GET    /v1/projects/:id/tickets    GET    /v1/runs/:id/diff
 GET/POST /v1/runs                  GET    /v1/runs/:id
 POST   /v1/runs/:id/approve        GET    /v1/analytics/summary
 ```
@@ -781,15 +787,129 @@ Other things worth not breaking:
   right now. That is why it is looked up per issue rather than cached.
 - Off by default. `Project.writeback` defaults to `{}`, which reads as disabled.
 
+## AI Sprint Planner
+
+One metered LLM call turns a project's untouched backlog into story-point
+estimates, a dependency graph, and a capacity-bound sprint selection —
+per `documents/PRODUCT_STRATEGY.md` Horizon 4 §5.14. None of the
+execution-layer competitors (Devin, Factory, GitHub Agent HQ, OpenHands) plan
+a sprint; they only execute a ticket once it's already scheduled.
+**Correction, 2026-08-16:** Atlassian's Rovo *does* ship a Sprint Planning
+Agent (capacity-based allocation + backlog dependency-conflict detection) —
+see `documents/RESEARCH_TRIAGE_2026-08.md`. The surviving differentiation is
+narrower than first claimed: Rovo is Jira-only and stops at the backlog; this
+feeds the same estimate into the governed pipeline (policy gate, cost
+attribution, audit trail) across Jira *and* Linear.
+
+```
+backend/app/models/sprint.py                  ← SprintPlan, TicketEstimate
+backend/app/services/sprint_planner_service.py← the tool-call, the scoring
+backend/app/routers/sprint.py                 ← /projects/:id/sprint-plan
+migrations/versions/b2c3d4e5f6a7_sprint_plans.py
+frontend/src/components/projects/SprintPlanPanel.tsx  ← "Sprint" tab on ProjectDetailPage
+```
+
+- **"Backlog" means tickets with zero runs ever started.** A ticket already in
+  flight has an opinion (a run, maybe a PR) that estimation shouldn't
+  second-guess; re-planning one that failed is a human call, not an automatic
+  one. Capped at 60 tickets per planning call — a bigger backlog needs triage
+  before it needs a bigger prompt.
+- **Dependencies can only point at tickets the model was actually shown** —
+  the tool schema returns `depends_on` as *other backlog tickets' jira_ids*,
+  which keeps the graph inside the plan instead of inventing cross-project
+  references. `resolve_estimate` drops any `jira_id` the model wasn't handed
+  rather than guessing what it meant.
+- **`blocked` beats `at_risk`.** A sprint at 40% capacity whose first ticket
+  can't start because its dependency didn't make the cut is not "under
+  budget," it cannot proceed as planned — `plan_health` checks `any_blocked`
+  before the capacity math. Pinned in `tests/test_platform_units.py::TestSprintPlanHealth`
+  and `TestSprintPlannerResolution` the same way `TestReviewScore` pins policy
+  scoring — a drift here should fail a test, not a customer's sprint.
+- **Same metering path as every agent call** — `llm_service.complete()` +
+  `metering_service.record_llm_call(..., run_id=None, ...)`, BYO-key aware,
+  quota-checked before the call via `metering_service.check_quota()`. It is
+  billed like a run's LLM spend, not a side channel that dodges cost
+  attribution.
+- **Write-back reuses the Jira/Linear write-back convention, not the
+  run-scoped `writeback_service`** (that module's `_target()` requires a
+  `Run`; sprint planning has none). `sprint_planner_service.write_back_estimates()`
+  is the project-level sibling: same opt-in gate (`project.writeback.enabled`),
+  same "a tracker failure can never raise" rule, posts one comment per
+  estimated ticket. Off by default — the endpoint takes `write_back: bool` on
+  the plan request, or a plan can be written back separately after review.
+- **A plan is a snapshot, not a live document.** Re-planning creates a new
+  `SprintPlan` row rather than mutating the last one, so a team can see how
+  the plan changed and still show a stakeholder last week's version.
+
+## VS Code Extension (`vscode-extension/`)
+
+Chosen over marketplace creator payouts as the next Phase-12 item, per
+`documents/RESEARCH_TRIAGE_2026-08.md`: a paid marketplace needs both buyers
+and sellers, and with zero live users there is no buyer side yet for a
+creator to sell into. An IDE extension is distribution into where developers
+already are and can generate real usage before either side of a marketplace
+exists.
+
+```
+vscode-extension/
+  src/api.ts            ← thin client for the public API (/v1/*) — nine
+                           endpoints, hand-written on purpose, not generated
+  src/extension.ts       ← activation, commands, status bar, polling
+  src/runsProvider.ts     ← one TreeDataProvider class backs both sidebar
+                            views (Awaiting Approval / Recent Runs)
+  src/diffPanel.ts        ← webview rendering PR patches
+```
+
+- **Talks to the same `/v1` public API as CI and ChatOps** — no
+  extension-only backend path. Two endpoints were added to
+  `routers/public_api.py` to support it: `GET /v1/projects/:id/tickets`
+  (backs "Assign Ticket to AI") and `GET /v1/runs/:id/diff` (backs the diff
+  webview). The diff logic itself was extracted from `routers/runs.py` into
+  `services/pr_diff_service.py` so the internal web-app route and the public
+  API route call the same function instead of maintaining two copies of a
+  PyGithub call.
+- **Scopes are enforced exactly as they are everywhere else** — a
+  `runs:write`-only key can start work through the extension but its Approve
+  button will 403, the same separation that exists for CI tokens. The
+  extension does not attempt to hide or route around this client-side.
+- **The API key lives in VS Code's `SecretStorage`**, never in `settings.json`.
+- No test suite yet (see "Still isn't built" below) — `tsc`'s strict-mode
+  type-check is the safety net for now; the client is a thin enough wrapper
+  that most real bugs would be in the backend routes it calls, which *are*
+  covered by `tests/test_platform_units.py`.
+
+## Reviewer Suggestion
+
+A named Rovo Dev capability ("suggest the right peer reviewer based on past
+commit history") this platform didn't have: every PR the Dev agent opened
+went out with zero reviewers requested. `services/reviewer_suggestion_service.py`
+closes that gap for GitHub — after `_apply_github` opens the PR, it walks the
+commit history of each changed file (`repo.get_commits(path=...)`, last 15
+commits/file), tallies author logins (once per file, so a big diff to one file
+doesn't drown out someone who touches many small files), excludes the PR's
+own author, and calls `pr.create_review_request()` with the top 2. The ranking
+(`rank()`) is pure and unit-tested (`TestReviewerSuggestion`,
+`tests/test_platform_units.py`) with zero GitHub calls; the GitHub-specific
+fetch wrapping it is best-effort and swallowed on any exception — a rate
+limit or a brand-new repo with no history must never block PR creation, the
+same rule the Reviewer agent's PR comment already follows. GitLab MRs use
+numeric `reviewer_ids` rather than usernames and aren't wired up yet — MR
+creation still succeeds, it just requests no reviewer.
+
 ## What Still Isn't Built (Phase 12+)
 
 - SAML SSO and SCIM directory provisioning (OIDC SSO **is** built — see above)
 - Marketplace creator payouts (listings support pricing; no payout flow)
-- AI sprint planning / story-point estimation
-- VS Code extension
+- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 101 pytest unit tests)
 - Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
-- Vitest for the frontend (backend has 87 pytest unit tests)
 - MinIO skill file storage (skills still save `md_content` direct to DB)
+- Reviewer suggestion for GitLab merge requests (GitHub only today)
+- A per-pod/per-project run concurrency cap (Devin's "automations queueing" —
+  max concurrent runs + queue depth). Not built; would live in `policy_service`
+  alongside the existing blast-radius checks if built.
+- A dedicated engineering-manager productivity dashboard (Rovo's "AI Pulse").
+  `insights.py` + `ReviewFinding`/`Deployment`/`RunFeedback` already have the
+  underlying data; there is no aggregated cross-run view surfacing it yet.
 
 ---
 

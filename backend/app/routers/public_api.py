@@ -22,7 +22,9 @@ from app.database import get_db
 from app.models.governance import ApiKey
 from app.models.project import Project
 from app.models.run import Approval, Run
+from app.models.ticket import Ticket
 from app.services import analytics_service, metering_service
+from app.services.pr_diff_service import DiffError, get_pr_files
 
 router = APIRouter()
 
@@ -114,6 +116,28 @@ def list_projects(
     ]
 
 
+@router.get("/projects/{project_id}/tickets")
+def list_tickets(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_scope("projects:read")),
+):
+    """
+    Backs the extension's "Assign to AI" picker — same scope as listing
+    projects, since a ticket is just a project's own backlog, not a
+    separately sensitive resource.
+    """
+    if project_id not in _scoped_projects(db, key):
+        raise HTTPException(404, "Project not found")
+    rows = (db.query(Ticket).filter(Ticket.project_id == project_id)
+            .order_by(Ticket.synced_at.desc()).limit(200).all())
+    return [
+        {"id": str(t.id), "jira_id": t.jira_id, "title": t.title,
+         "type": t.type, "priority": t.priority, "status": t.status}
+        for t in rows
+    ]
+
+
 @router.get("/runs")
 def list_runs(
     status: str | None = Query(None),
@@ -140,6 +164,21 @@ def get_run(
     if not run or run.project_id not in _scoped_projects(db, key):
         raise HTTPException(404, "Run not found")
     return _run_out(run)
+
+
+@router.get("/runs/{run_id}/diff")
+def get_run_diff(
+    run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    key: ApiKey = Depends(require_scope("runs:read")),
+):
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if not run or run.project_id not in _scoped_projects(db, key):
+        raise HTTPException(404, "Run not found")
+    try:
+        return get_pr_files(db, run)
+    except DiffError as e:
+        raise HTTPException(e.status_code, e.detail)
 
 
 @router.post("/runs", status_code=201)

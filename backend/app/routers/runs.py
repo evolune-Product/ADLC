@@ -173,37 +173,11 @@ def get_run_diff(
         raise HTTPException(status_code=404, detail="Run not found")
     _assert_project_access(run.project_id, current_user, db, org_ctx)
 
-    if not run.pr_number:
-        raise HTTPException(status_code=404, detail="No PR associated with this run")
-
-    project = db.query(Project).filter(Project.id == run.project_id).first()
-    if not project or not project.repo_connection_id or not project.repo_name:
-        raise HTTPException(status_code=422, detail="Project has no repository configured")
-
-    from app.models.connection import Connection
-    from app.services.encryption import decrypt_token
-    from github import Github
-
-    conn = db.query(Connection).filter(Connection.id == project.repo_connection_id).first()
-    if not conn or not conn.access_token:
-        raise HTTPException(status_code=422, detail="Repository connection not found")
-
+    from app.services.pr_diff_service import DiffError, get_pr_files
     try:
-        token = decrypt_token(conn.access_token)
-        repo  = Github(token).get_repo(project.repo_name)
-        pr    = repo.get_pull(run.pr_number)
-        return [
-            {
-                "filename":  f.filename,
-                "status":    f.status,
-                "additions": f.additions,
-                "deletions": f.deletions,
-                "patch":     f.patch or "",
-            }
-            for f in list(pr.get_files())[:20]  # cap at 20 files
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch PR diff: {str(e)}")
+        return get_pr_files(db, run)
+    except DiffError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.post("/runs/{run_id}/approve", response_model=RunOut)

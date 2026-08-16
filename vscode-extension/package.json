@@ -1,0 +1,71 @@
+{
+  "name": "adlc",
+  "displayName": "ADLC",
+  "description": "Run the ADLC agent pipeline from VS Code — assign tickets, watch runs, review diffs, approve or reject deploys.",
+  "version": "0.1.0",
+  "publisher": "adlc",
+  "private": true,
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "ADLC",
+      "properties": {
+        "adlc.apiUrl": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "Base URL of the ADLC backend (no /v1 suffix — the extension adds it)."
+        },
+        "adlc.pollIntervalSeconds": {
+          "type": "number",
+          "default": 20,
+          "minimum": 5,
+          "description": "How often to refresh the sidebar views and the status bar count."
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "adlc", "title": "ADLC", "icon": "resources/icon.svg" }
+      ]
+    },
+    "views": {
+      "adlc": [
+        { "id": "adlcApprovals", "name": "Awaiting Approval" },
+        { "id": "adlcRuns", "name": "Recent Runs" }
+      ]
+    },
+    "commands": [
+      { "command": "adlc.setApiKey", "title": "ADLC: Set API Key" },
+      { "command": "adlc.refresh", "title": "ADLC: Refresh", "icon": "$(refresh)" },
+      { "command": "adlc.assignToAi", "title": "ADLC: Assign Ticket to AI" },
+      { "command": "adlc.approveRun", "title": "ADLC: Approve Run", "icon": "$(check)" },
+      { "command": "adlc.requestChanges", "title": "ADLC: Request Changes", "icon": "$(request-changes)" },
+      { "command": "adlc.viewDiff", "title": "ADLC: View Diff" },
+      { "command": "adlc.openRunInBrowser", "title": "ADLC: Open Run in Browser", "icon": "$(link-external)" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "adlc.refresh", "when": "view == adlcApprovals || view == adlcRuns", "group": "navigation" }
+      ],
+      "view/item/context": [
+        { "command": "adlc.approveRun", "when": "view == adlcApprovals && viewItem == pendingRun", "group": "inline" },
+        { "command": "adlc.requestChanges", "when": "view == adlcApprovals && viewItem == pendingRun", "group": "inline" },
+        { "command": "adlc.viewDiff", "when": "viewItem == pendingRun || viewItem == run", "group": "1" },
+        { "command": "adlc.openRunInBrowser", "when": "viewItem == pendingRun || viewItem == run", "group": "1" }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -w -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

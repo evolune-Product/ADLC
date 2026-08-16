@@ -10,8 +10,9 @@ import { usePods } from '@/hooks/usePods'
 import { useProjectRuns } from '@/hooks/useRuns'
 import MemoryPanel from '@/components/projects/MemoryPanel'
 import WritebackPanel from '@/components/projects/WritebackPanel'
+import SprintPlanPanel from '@/components/projects/SprintPlanPanel'
 
-const TABS = ['Overview', 'Tickets', 'Runs', 'Settings'] as const
+const TABS = ['Overview', 'Sprint', 'Tickets', 'Runs', 'Settings'] as const
 type Tab = typeof TABS[number]
 
 const TYPE_LABEL: Record<string, string> = {
@@ -207,6 +208,11 @@ export default function ProjectDetailPage() {
           {/* …and what they tell the tracker back */}
           <WritebackPanel project={project} />
         </div>
+      )}
+
+      {/* ── Sprint ── */}
+      {activeTab === 'Sprint' && (
+        <SprintPlanPanel projectId={project.id} writebackEnabled={!!project.writeback?.enabled} />
       )}
 
       {/* ── Tickets ── */}

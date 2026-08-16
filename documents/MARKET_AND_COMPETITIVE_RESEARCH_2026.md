@@ -113,10 +113,10 @@ Sources: [Levelop](https://levelop.dev/blog/best-ai-code-review-tools-2026-coder
 
 ### 3.6 Platform risk (the real threat)
 
-- **Atlassian**: Rovo MCP Server GA **Feb 2026** (60+ tools across Jira/Confluence/Bitbucket/Compass); **"Agents in Jira" open beta Mar 2026** — agents appear as *assignees* on the board, with GitHub Copilot coding agent as the first integrated agent. ([Codex KB](https://codex.danielvaughan.com/2026/04/20/codex-cli-jira-ticket-driven-development-atlassian-mcp-automation/))
-- **GitHub**: Agent HQ makes multi-agent orchestration a platform primitive.
+- **Atlassian**: Rovo MCP Server GA **Feb 2026** (60+ tools across Jira/Confluence/Bitbucket/Compass); **"Agents in Jira" open beta Mar 2026** — agents appear as *assignees* on the board, with GitHub Copilot coding agent as the first integrated agent. ([Codex KB](https://codex.danielvaughan.com/2026/04/20/codex-cli-jira-ticket-driven-development-atlassian-mcp-automation/)) **Correction, verified 2026-08-16 (see `RESEARCH_TRIAGE_2026-08.md`):** Rovo also ships a **Sprint Planning Agent** — capacity-based story allocation plus backlog dependency-conflict detection. ADLC's own AI sprint planner (built 2026-08-16) narrows its claim accordingly: the defensible edge is not "nobody plans sprints," it's that Rovo is Jira-only and stops at the backlog, while ADLC's estimate feeds the same governed pipeline (policy gate, cost attribution, audit trail) across Jira *and* Linear.
+- **GitHub**: Agent HQ makes multi-agent orchestration a platform primitive. Public preview **4 Feb 2026** (not the Universe 2025 announcement date this was previously dated to). Its review agent now runs a **CodeQL scan on agent-generated PRs automatically before human review** — a second commoditised gate, same 12–18 month clock as below.
 
-**Consequence:** "ticket → PR" as a *feature* will be commoditised by the two systems of record within 12–18 months. The defensible surface is what neither will do well: **cross-vendor, policy-bound, cost-attributed, auditable execution that an engineering leader configures** — plus the org's accumulated skills and codebase memory.
+**Consequence:** "ticket → PR" *and now "ticket → sprint plan"* as features will be commoditised by the two systems of record within 12–18 months. The defensible surface is what neither will do well: **cross-vendor, policy-bound, cost-attributed, auditable execution that an engineering leader configures** — plus the org's accumulated skills and codebase memory.
 
 ---
 

@@ -614,3 +614,113 @@ class TestJiraAdf:
         from app.services.jira_service import _adf
         doc = _adf("hello")
         assert doc["type"] == "doc" and doc["version"] == 1
+
+
+# ═══ Sprint planner ═══════════════════════════════════════════════════════════
+
+class _FakeTicket:
+    def __init__(self, jira_id):
+        self.jira_id = jira_id
+        self.id = jira_id  # stand-in; resolve_estimate never uses the real uuid shape
+
+
+class TestSprintPlannerResolution:
+    """resolve_estimate and plan_health are the two places a silent regression
+    would either overcommit a sprint or hide a real blocker behind a green
+    'on_track' banner — pinned independent of any DB session or LLM call."""
+
+    def test_clamps_story_points_into_range(self):
+        from app.services.sprint_planner_service import resolve_estimate
+        by_id = {"A-1": _FakeTicket("A-1")}
+        row = resolve_estimate({"jira_id": "A-1", "story_points": 999, "depends_on": []}, by_id, set())
+        assert row["story_points"] == 21
+        row = resolve_estimate({"jira_id": "A-1", "story_points": 0, "depends_on": []}, by_id, set())
+        assert row["story_points"] == 1
+
+    def test_unknown_ticket_id_is_dropped_not_guessed(self):
+        from app.services.sprint_planner_service import resolve_estimate
+        assert resolve_estimate({"jira_id": "GHOST-1", "story_points": 3, "depends_on": []}, {}, set()) is None
+
+    def test_self_dependency_is_stripped(self):
+        from app.services.sprint_planner_service import resolve_estimate
+        by_id = {"A-1": _FakeTicket("A-1")}
+        row = resolve_estimate({"jira_id": "A-1", "story_points": 3, "depends_on": ["A-1"]}, by_id, {"A-1"})
+        assert row["depends_on"] == []
+
+    def test_included_ticket_blocked_by_excluded_dependency(self):
+        from app.services.sprint_planner_service import resolve_estimate
+        by_id = {"A-1": _FakeTicket("A-1"), "A-2": _FakeTicket("A-2")}
+        # A-1 depends on A-2, but only A-1 was selected for the sprint.
+        row = resolve_estimate(
+            {"jira_id": "A-1", "story_points": 3, "depends_on": ["A-2"], "include_in_sprint": True},
+            by_id, included_ids={"A-1"},
+        )
+        assert row["included_in_sprint"] is True
+        assert row["risk"] == "blocked"
+
+    def test_included_ticket_not_blocked_when_dependency_also_included(self):
+        from app.services.sprint_planner_service import resolve_estimate
+        by_id = {"A-1": _FakeTicket("A-1"), "A-2": _FakeTicket("A-2")}
+        row = resolve_estimate(
+            {"jira_id": "A-1", "story_points": 3, "depends_on": ["A-2"], "include_in_sprint": True},
+            by_id, included_ids={"A-1", "A-2"},
+        )
+        assert row["risk"] == "on_track"
+
+    def test_excluded_ticket_is_never_blocked_regardless_of_dependencies(self):
+        # Risk describes whether the sprint can execute, not the ticket's own
+        # standing — a ticket that isn't in the sprint has nothing to block.
+        from app.services.sprint_planner_service import resolve_estimate
+        by_id = {"A-1": _FakeTicket("A-1"), "A-2": _FakeTicket("A-2")}
+        row = resolve_estimate(
+            {"jira_id": "A-1", "story_points": 3, "depends_on": ["A-2"], "include_in_sprint": False},
+            by_id, included_ids=set(),
+        )
+        assert row["risk"] == "on_track"
+
+
+class TestSprintPlanHealth:
+    def test_blocked_beats_at_risk(self):
+        from app.services.sprint_planner_service import plan_health
+        # Even at 0% committed, one blocked ticket makes the sprint unable to proceed as planned.
+        assert plan_health(capacity_points=20, committed_points=0, any_blocked=True) == "blocked"
+
+    def test_at_risk_at_ninety_percent_capacity(self):
+        from app.services.sprint_planner_service import plan_health
+        assert plan_health(capacity_points=20, committed_points=18, any_blocked=False) == "at_risk"
+        assert plan_health(capacity_points=20, committed_points=17, any_blocked=False) == "on_track"
+
+    def test_zero_capacity_never_divides_by_zero(self):
+        from app.services.sprint_planner_service import plan_health
+        assert plan_health(capacity_points=0, committed_points=0, any_blocked=False) == "on_track"
+
+
+class TestReviewerSuggestion:
+    def test_ranks_by_file_frequency(self):
+        from app.services.reviewer_suggestion_service import rank
+        authors = {
+            "a.py": ["alice", "alice", "bob"],
+            "b.py": ["alice", "carol"],
+        }
+        # alice touched both files (counted once per file), bob and carol touched one each
+        assert rank(authors, exclude=set()) == ["alice", "bob"]
+
+    def test_excludes_given_logins(self):
+        from app.services.reviewer_suggestion_service import rank
+        authors = {"a.py": ["alice", "bob", "bot-agent"]}
+        assert rank(authors, exclude={"alice", "bot-agent"}) == ["bob"]
+
+    def test_caps_at_max_reviewers(self):
+        from app.services.reviewer_suggestion_service import rank
+        authors = {"a.py": ["alice"], "b.py": ["bob"], "c.py": ["carol"]}
+        result = rank(authors, exclude=set(), max_reviewers=2)
+        assert len(result) == 2
+
+    def test_empty_history_returns_empty(self):
+        from app.services.reviewer_suggestion_service import rank
+        assert rank({}, exclude=set()) == []
+
+    def test_ties_broken_alphabetically_for_determinism(self):
+        from app.services.reviewer_suggestion_service import rank
+        authors = {"a.py": ["zed"], "b.py": ["amy"]}
+        assert rank(authors, exclude=set(), max_reviewers=2) == ["amy", "zed"]

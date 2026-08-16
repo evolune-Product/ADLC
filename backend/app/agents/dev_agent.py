@@ -222,6 +222,17 @@ def _apply_github(token, agent, repo_name, branch_name, pr_title, pr_body, files
             repo.create_file(path, msg, content, branch=branch_name)
 
     pr = repo.create_pull(title=pr_title, body=pr_body, head=branch_name, base=default_branch)
+
+    try:
+        from app.services.reviewer_suggestion_service import suggest_github_reviewers
+        reviewers = suggest_github_reviewers(repo, files, exclude_login=pr.user.login if pr.user else None)
+        if reviewers:
+            pr.create_review_request(reviewers=reviewers)
+    except Exception:
+        # Advisory only — same rule as the Reviewer agent's PR comment: a
+        # failure here must never fail the run that already opened the PR.
+        pass
+
     return pr.html_url, pr.number
 
 
