@@ -12,6 +12,7 @@ from app.routers.auth import get_current_user
 from app.routers._helpers import get_optional_org, owner_filter, OrgContext
 from app.models.user import User
 from app.services.notification_service import emit_run_event
+from app.services import policy_service
 
 router = APIRouter()
 
@@ -108,26 +109,14 @@ def create_run(
         raise HTTPException(status_code=403, detail="Viewers cannot trigger runs")
     _assert_project_access(body.project_id, current_user, db, org_ctx)
 
-    run = Run(
+    run = create_and_dispatch_run(
+        db,
         project_id=body.project_id,
         ticket_id=body.ticket_id,
         pod_id=body.pod_id,
-        status="queued",
         triggered_by=current_user.id,
+        org_id=org_ctx.org_id if org_ctx else None,
     )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-
-    # Dispatch Celery task
-    try:
-        from app.tasks.run_tasks import trigger_run_until_approval
-        trigger_run_until_approval.delay(str(run.id))
-    except Exception as e:
-        run.status = "failed"
-        run.error_message = f"Failed to dispatch task: {str(e)}"
-        db.commit()
-
     return _run_out(run)
 
 
@@ -180,14 +169,90 @@ def get_run_diff(
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
-@router.post("/runs/{run_id}/approve", response_model=RunOut)
-def approve_run(
+def create_and_dispatch_run(
+    db: Session,
+    *,
+    project_id: uuid.UUID,
+    ticket_id: Optional[uuid.UUID],
+    pod_id: uuid.UUID,
+    triggered_by: uuid.UUID,
+    org_id=None,
+    retry_count: int = 0,
+) -> Run:
+    """
+    Create a run and start it — or hold it in the queue if the project is at its
+    concurrency limit.
+
+    The single creation path, for the same reason `apply_run_decision` is the
+    single approval path. A run can be started from the Runs page, from a chat
+    mention, from CI through the public API, or by another agent over MCP, and a
+    concurrency cap that only one of those four respects is not a cap.
+
+    A run held back stays at `queued` and is simply not dispatched;
+    `policy_service.promote_next` starts it when a slot frees. That is why the
+    caller gets a `Run` back either way and should read `run.status` rather than
+    assuming work began.
+    """
+    run = Run(
+        project_id=project_id,
+        ticket_id=ticket_id,
+        pod_id=pod_id,
+        status="queued",
+        triggered_by=triggered_by,
+        retry_count=retry_count,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    decision = policy_service.check_concurrency(
+        db, project_id=project_id, org_id=org_id, exclude_run_id=run.id,
+    )
+    if decision.reason:
+        # The queue itself is full. Refusing is kinder than accepting work that
+        # would sit for hours, and it surfaces a misconfigured limit immediately.
+        db.delete(run)
+        db.commit()
+        raise HTTPException(status_code=429, detail=decision.reason)
+
+    if not decision.admitted:
+        return run   # held at `queued`; promote_next will pick it up
+
+    try:
+        from app.tasks.run_tasks import trigger_run_until_approval
+        trigger_run_until_approval.delay(str(run.id))
+    except Exception as e:
+        run.status = "failed"
+        run.error_message = f"Failed to dispatch task: {str(e)}"
+        db.commit()
+
+    db.refresh(run)
+    return run
+
+
+def apply_run_decision(
+    db: Session,
+    *,
     run_id: uuid.UUID,
-    body: ApproveBody,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
-):
+    decision: str,
+    comment: Optional[str],
+    current_user: User,
+    org_ctx: Optional[OrgContext] = None,
+) -> Run:
+    """
+    The approval gate, callable from anywhere.
+
+    Extracted from the endpoint so the workspace chat surface can approve a run
+    without reimplementing the checks. Two code paths that can release a deploy
+    is one too many: the access check, the status check, the Approval row and
+    the resume dispatch all have to be the same or the audit trail is fiction.
+
+    Accepts the chat verbs (`approve` / `reject`) as aliases for the stored
+    decision values, because `/reject` is what a human types and
+    `changes_requested` is what the column holds.
+    """
+    decision = {"approve": "approved", "reject": "changes_requested"}.get(decision, decision)
+
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -201,32 +266,45 @@ def approve_run(
             detail=f"Run is not awaiting approval (status: {run.status})",
         )
 
-    if body.decision not in ("approved", "changes_requested"):
+    if decision not in ("approved", "changes_requested"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="decision must be 'approved' or 'changes_requested'",
         )
 
-    # Record approval
     approval = Approval(
         run_id=run_id,
         reviewer_id=current_user.id,
-        decision=body.decision,
-        comment=body.comment,
+        decision=decision,
+        comment=comment,
     )
     db.add(approval)
     db.commit()
 
-    # Dispatch resume task
     try:
         from app.tasks.run_tasks import resume_after_approval
-        resume_after_approval.delay(str(run_id), body.decision, body.comment)
+        resume_after_approval.delay(str(run_id), decision, comment)
     except Exception as e:
         run.status = "failed"
         run.error_message = f"Failed to dispatch resume task: {str(e)}"
         db.commit()
 
     db.refresh(run)
+    return run
+
+
+@router.post("/runs/{run_id}/approve", response_model=RunOut)
+def approve_run(
+    run_id: uuid.UUID,
+    body: ApproveBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    run = apply_run_decision(
+        db, run_id=run_id, decision=body.decision, comment=body.comment,
+        current_user=current_user, org_ctx=org_ctx,
+    )
     return _run_out(run)
 
 
@@ -244,26 +322,15 @@ def retry_run(
         raise HTTPException(status_code=403, detail="Viewers cannot retry runs")
     _assert_project_access(original.project_id, current_user, db, org_ctx)
 
-    new_run = Run(
+    new_run = create_and_dispatch_run(
+        db,
         project_id=original.project_id,
         ticket_id=original.ticket_id,
         pod_id=original.pod_id,
-        status="queued",
         triggered_by=current_user.id,
+        org_id=org_ctx.org_id if org_ctx else None,
         retry_count=original.retry_count + 1,
     )
-    db.add(new_run)
-    db.commit()
-    db.refresh(new_run)
-
-    try:
-        from app.tasks.run_tasks import trigger_run_until_approval
-        trigger_run_until_approval.delay(str(new_run.id))
-    except Exception as e:
-        new_run.status = "failed"
-        new_run.error_message = f"Failed to dispatch task: {str(e)}"
-        db.commit()
-
     return _run_out(new_run)
 
 

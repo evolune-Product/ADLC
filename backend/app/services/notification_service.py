@@ -23,12 +23,25 @@ def _get_mgr():
     return _mgr
 
 
-def emit_run_event(run_id: str, event: str, data: dict) -> None:
-    """Emit a socket.io event to the run:{run_id} room."""
+def emit_to_room(room: str, event: str, data: dict) -> None:
+    """
+    Emit a socket.io event to an arbitrary room.
+
+    Rooms in use: `run:{run_id}` (agent step trace), `channel:{channel_id}`
+    (workspace messages, typing, reactions) and `user:{user_id}` (per-user
+    badge and unread counts, which must reach a client that has no channel
+    open). All three share this one manager so there is a single place where a
+    dead Redis degrades to silence rather than an exception.
+    """
     mgr = _get_mgr()
     if mgr is None:
         return
     try:
-        mgr.emit(event, data, room=f"run:{run_id}")
+        mgr.emit(event, data, room=room)
     except Exception:
-        pass  # Never let socket emit errors break the run
+        pass  # Never let socket emit errors break the caller
+
+
+def emit_run_event(run_id: str, event: str, data: dict) -> None:
+    """Emit a socket.io event to the run:{run_id} room."""
+    emit_to_room(f"run:{run_id}", event, data)

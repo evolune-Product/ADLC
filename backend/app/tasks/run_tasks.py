@@ -31,6 +31,7 @@ from app.agents.devops_agent import run_devops_agent
 from app.services import memory_service, metering_service, notifier, policy_service
 from app.services import writeback_service
 from app.services.notification_service import emit_run_event
+from app.services import workspace_bridge
 
 log = logging.getLogger(__name__)
 
@@ -148,6 +149,9 @@ def trigger_run_until_approval(self, run_id: str):
         db.commit()
 
         emit_run_event(run_id, "run:started", {"runId": run_id})
+        # …and into the project channel, so the team sees the work start
+        # where they are already talking. Best-effort by construction.
+        workspace_bridge.narrate_run_event(db, run_id, "run:started")
         # Ticket write-back. Every one of these is best-effort by construction —
         # see writeback_service — so a ticket tracker being down cannot touch a
         # run that is already in flight.
@@ -205,6 +209,9 @@ def trigger_run_until_approval(self, run_id: str):
             "prNumber": state.get("pr_number"),
             "reviewScore": state.get("review_score"),
         })
+        workspace_bridge.narrate_run_event(db, run_id, "run:awaiting_approval", {
+            "review_score": state.get("review_score"),
+        })
 
         score = state.get("review_score")
         score_line = f"Reviewer score: {score}/100. " if score is not None else ""
@@ -227,6 +234,7 @@ def trigger_run_until_approval(self, run_id: str):
         if run:
             _fail_run(run, str(exc), db)
         emit_run_event(run_id, "run:failed", {"runId": run_id, "error": str(exc)})
+        workspace_bridge.narrate_run_event(db, run_id, "run:failed", {"error": str(exc)})
     finally:
         db.close()
 
@@ -279,6 +287,7 @@ def resume_after_approval(self, run_id: str, decision: str, comment: str | None 
             run.error_message = None
             db.commit()
             emit_run_event(run_id, "run:policy:blocked", {"runId": run_id, **gate.as_dict()})
+            workspace_bridge.narrate_run_event(db, run_id, "run:policy:blocked", gate.as_dict())
             notifier.notify_org(
                 db, org_id=org_id, fallback_user_id=user_id, type="policy.blocked",
                 title=f"Deploy blocked by policy '{gate.policy_name}'",
@@ -289,6 +298,7 @@ def resume_after_approval(self, run_id: str, decision: str, comment: str | None 
         run.status = "running"
         db.commit()
         emit_run_event(run_id, "run:approved", {"runId": run_id, "decision": "approved"})
+        workspace_bridge.narrate_run_event(db, run_id, "run:approved")
 
         state = {
             **state,
@@ -366,6 +376,22 @@ def _record_deployment(db, run_id: str, target: dict, gate=None) -> None:
     db.commit()
 
 
+def _drain_queue(db, run: Run) -> None:
+    """
+    A concurrency slot just freed — start whatever was waiting behind it.
+
+    Wrapped whole and swallowed on purpose. This runs immediately after a run
+    reached a terminal state; an exception escaping here would turn a run that
+    just *succeeded* into a failure, and the queue would be drained by the next
+    completion anyway.
+    """
+    try:
+        _user_id, org_id, _project = _owner(db, run)
+        policy_service.promote_next(db, project_id=run.project_id, org_id=org_id)
+    except Exception:
+        log.exception("Could not promote a queued run for project %s", run.project_id)
+
+
 def _complete_run(run_id: str, db, gate=None) -> None:
     run = db.query(Run).filter(Run.id == run_id).first()
     if run:
@@ -374,9 +400,12 @@ def _complete_run(run_id: str, db, gate=None) -> None:
         run.completed_at = datetime.now(timezone.utc)
         db.commit()
     emit_run_event(run_id, "run:completed", {"runId": run_id, "status": "completed"})
+    workspace_bridge.narrate_run_event(db, run_id, "run:completed")
 
     if not run:
         return
+
+    _drain_queue(db, run)
 
     user_id, org_id, _project = _owner(db, run)
     spend = metering_service.run_spend_millicents(db, run.id) / 100_000
@@ -458,3 +487,4 @@ def _fail_run(run: Run, error: str, db) -> None:
     run.completed_at = datetime.now(timezone.utc)
     db.commit()
     emit_run_event(str(run.id), "run:failed", {"runId": str(run.id), "error": error})
+    _drain_queue(db, run)

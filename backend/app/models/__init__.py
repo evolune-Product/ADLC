@@ -18,6 +18,11 @@ from app.models.memory import MemoryChunk, MemoryIndex
 from app.models.insight import ReviewFinding, RunFeedback, Deployment, SourceRead
 from app.models.sprint import SprintPlan, TicketEstimate
 
+# Phase 12 — the collaboration layer
+from app.models.workspace import (
+    Channel, ChannelMember, Message, MessageReaction, UserPresence,
+)
+
 __all__ = [
     "User", "Organization", "OrgMember", "OrgInvitation", "SsoConnection",
     "Connection", "Skill", "Agent", "AgentSkill",
@@ -30,4 +35,5 @@ __all__ = [
     "MemoryChunk", "MemoryIndex",
     "ReviewFinding", "RunFeedback", "Deployment", "SourceRead",
     "SprintPlan", "TicketEstimate",
+    "Channel", "ChannelMember", "Message", "MessageReaction", "UserPresence",
 ]

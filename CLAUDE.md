@@ -549,7 +549,10 @@ Work         Projects · Runs
 Observe      Insights · Audit Log · Compliance
 Govern       Policies · Developer · Billing · Settings
 ```
-Plus a notification bell in the topbar.
+Plus a notification bell in the topbar. **Phase 12** adds `Workspace` directly
+under `Dashboard`, above every group — the conversation is where a team starts
+its day, and burying it under "Build" is how a chat surface goes unused and the
+WhatsApp group survives.
 
 ### Run pipeline (updated)
 `sprint → dev → qa → review → [human approval + policy gate] → merge → multi-env deploy`
@@ -896,20 +899,169 @@ same rule the Reviewer agent's PR comment already follows. GitLab MRs use
 numeric `reviewer_ids` rather than usernames and aren't wired up yet — MR
 creation still succeeds, it just requests no reviewer.
 
+## Phase 12 — Workspace (the collaboration layer)
+
+Every team running this platform already coordinates somewhere else: a WhatsApp
+group in India, Slack elsewhere, Teams in the enterprise. That split is where
+the audit trail dies — a deploy approved in a WhatsApp thread at 11pm and typed
+into the platform an hour later by someone else makes the compliance export a
+work of fiction. The whole pitch of this codebase is that the governed path is
+the only path; a chat tool the platform cannot see is a parallel ungoverned one.
+
+```
+backend/app/models/workspace.py            ← Channel, ChannelMember, Message,
+                                              MessageReaction, UserPresence
+backend/app/services/workspace_service.py  ← the write path: post_message, mentions,
+                                              unread, presence, catch-up summary
+backend/app/services/workspace_bridge.py   ← chat ↔ pipeline: run narration,
+                                              @agent dispatch, slash commands
+backend/app/routers/workspace.py           ← 28 routes under /workspace
+migrations/versions/c3d4e5f6a7b8_workspace.py
+frontend/src/pages/workspace/WorkspacePage.tsx
+frontend/src/components/workspace/{ChannelSidebar,MessageItem,Composer,ThreadPanel}.tsx
+frontend/src/hooks/useWorkspace.ts · frontend/src/types/workspace.ts
+```
+
+What it does that a Slack integration structurally cannot:
+
+1. **Agents are members, not webhooks.** `ChannelMember` carries either a
+   `user_id` or an `agent_id` (a CHECK enforces exactly one), so the member
+   list, the mention autocomplete and `@`-resolution treat humans and agents
+   identically. `@qa PROJ-214` in a project channel starts a real run —
+   attributed to the person who typed it, counted against their quota, subject
+   to the same policy gate as the Runs page.
+2. **Runs narrate themselves** into the channel that owns the work.
+   `narrate_run_event` is called from `run_tasks.py` next to each
+   `emit_run_event` so the two cannot drift. The step firehose is deliberately
+   *not* narrated — `run:step:log` belongs on the trace page.
+3. **Approving from chat is the same gate.** `runs.py::apply_run_decision` was
+   extracted so the chat button and the Runs page share one code path. Two
+   places that can release a deploy is one too many.
+
+Rules that matter:
+
+- **`post_message` is the only way a message is created.** Counters, unread
+  bookkeeping, socket fan-out, notification fan-out and the mention parse have
+  to happen together or the sidebar lies about unread counts. Order inside it is
+  `persist → counters → socket → notifications`, so an online reader clears the
+  unread before the notifier decides whether to email them.
+- **One socket publish per message, to `channel:{id}`.** There is deliberately
+  no per-recipient badge event: that would be one broker publish per member per
+  message (200 publishes for one line in a 200-person channel). The client joins
+  every channel it belongs to — `useWorkspaceLive` — and decides locally whether
+  an inbound message is a badge or a rendered line. `useChannelSocket` takes an
+  `isMember` flag so it does not leave a room the sidebar still needs.
+- **Only a mention or a DM may page someone.** Ordinary channel traffic stays
+  in-app. `notify_level` (`all`/`mentions`/`none`) and `is_muted` are honoured
+  in `_recipients`, not in the notifier, because they are per-channel. Mute
+  means "do not interrupt me", not "hide this from me" — a muted channel still
+  increments unread, and a direct mention still pierces it.
+- **Broadcast channels are the WhatsApp-Channel shape** — admins publish,
+  everyone reads. Enforced in `can_post`, never only in the UI.
+- **A private channel 404s rather than 403s** for non-members. A 403 confirms
+  the channel exists and lets someone enumerate the channel list by probing.
+  Search applies the same rule; there is an e2e assertion for it.
+- **Messages are soft-deleted.** A hard delete would let someone remove the
+  message an approval was granted in, after the fact, from a system whose whole
+  value is that the record is trustworthy.
+- **Read state is a high-water mark**, not a receipt table — members × messages
+  rows to answer one question a single timestamp answers.
+- **Search is ILIKE, not tsvector**, for the same reason memory embeddings are
+  JSONB: stock Postgres 15 from a compose file, no extensions. Swap point is
+  documented in `search()`.
+- **`nullslast()` goes after `desc()`**, not before. `desc(col.nullslast())`
+  emits `NULLS LAST DESC`, which Postgres rejects outright.
+- **The catch-up summary goes through `llm_service.complete()`** like every
+  other model call, so it is metered and attributable. It would otherwise be the
+  one uncapped cost path in the product.
+
+New WebSocket events (rooms `channel:{id}` and `user:{id}`):
+```
+message:new · message:updated · message:deleted · typing · workspace:read
+```
+
+## Run Concurrency (Devin's "automations queueing")
+
+A cap on concurrent runs per project, plus a bounded queue behind it. Blast
+radius is not only *what one run may touch* — it is also *how many runs are
+touching at once*. Six agents opening PRs against one repo in parallel is a
+merge-conflict generator and a way to burn a month's quota in an afternoon, and
+neither is visible in a per-run cost cap.
+
+```
+app/models/governance.py        ← ApprovalPolicy.max_concurrent_runs, .max_queue_depth
+app/services/policy_service.py  ← check_concurrency(), promote_next(), ConcurrencyDecision
+app/routers/runs.py             ← create_and_dispatch_run() — the single creation path
+app/tasks/run_tasks.py          ← _drain_queue() on both terminal paths
+migrations/versions/d4e5f6a7b8c9_run_concurrency.py
+```
+
+- **It is a policy, not a queue setting**, and lives beside the blast-radius
+  controls an org already configures. It therefore applies identically whether a
+  run was started from the Runs page, from chat, from CI via `/v1/runs`, or by an
+  agent over MCP — which is why `create_and_dispatch_run` exists at all. A cap
+  only one of four entry points respects is not a cap.
+- **`awaiting_approval` does not occupy a slot.** If it did, three un-reviewed
+  PRs would deadlock a project's whole pipeline until a human woke up — the exact
+  failure a concurrency cap exists to prevent. Pinned by
+  `TestConcurrencySlotAccounting`.
+- **Three outcomes, not two.** Admitted (dispatch now), queued (held at `queued`,
+  started by `promote_next` when a slot frees), or refused with **429** when the
+  queue itself is full. An unbounded queue is not backpressure, it is a memory
+  leak with a nicer name.
+- **Both limits default to 0 = unlimited**, so every pre-existing policy row
+  behaves exactly as before. `check_concurrency` tests `policy is None`, not
+  truthiness — an explicitly-passed empty policy means "no limits" and must not
+  fall through to a DB lookup.
+- **`_drain_queue` is swallowed whole.** It runs right after a run reaches a
+  terminal state; an exception escaping there would turn a run that just
+  *succeeded* into a failure, and the next completion drains the queue anyway.
+
+## Engineering Pulse (Rovo's "AI Pulse")
+
+The cross-run view an engineering manager needs, built on rows the platform
+already writes. `analytics_service.pulse()` → `GET /analytics/pulse` →
+`frontend/src/pages/analytics/PulsePage.tsx` at `/pulse`.
+
+Deliberately **separate from `/analytics`**. Insights answers "was this worth the
+money", a quarterly finance conversation. Pulse answers "where is my pipeline
+stuck this week and does the team trust the output", a Monday-morning one. One
+page trying to do both serves neither.
+
+Four blocks, in the order a manager reads them:
+
+| Block | What it shows |
+|---|---|
+| **Flow** | DORA-shaped: deploy frequency, median lead time, change failure rate, throughput trend vs the preceding window |
+| **Bottleneck** | Median duration per agent role, **approval wait per reviewer**, and how long the oldest waiting run has sat |
+| **Quality** | Reviewer-agent findings by severity and category, per-run rate, trend |
+| **Trust** | First-pass approval rate, median human rewrite in LOC, thumbs up/down, top rejection reasons |
+
+- **The bottleneck block is the point.** On most real teams the agents finish in
+  minutes and the change then waits hours for a person; no other screen in this
+  product makes that visible, and it reframes "the AI is slow" into a number the
+  manager can act on.
+- **Change failure rate counts deploys, not runs.** A run that failed before it
+  ever deployed is a flaky agent; a deploy that broke or was rolled back is a
+  production incident. Conflating them makes the metric useless.
+- **Empty stays empty.** With no `RunFeedback` rows the trust block renders blank
+  and says so. An assumed satisfaction score is worse than an honest gap.
+
 ## What Still Isn't Built (Phase 12+)
 
 - SAML SSO and SCIM directory provisioning (OIDC SSO **is** built — see above)
 - Marketplace creator payouts (listings support pricing; no payout flow)
-- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 101 pytest unit tests)
+- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 137 pytest unit tests)
 - Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
 - MinIO skill file storage (skills still save `md_content` direct to DB)
 - Reviewer suggestion for GitLab merge requests (GitHub only today)
-- A per-pod/per-project run concurrency cap (Devin's "automations queueing" —
-  max concurrent runs + queue depth). Not built; would live in `policy_service`
-  alongside the existing blast-radius checks if built.
-- A dedicated engineering-manager productivity dashboard (Rovo's "AI Pulse").
-  `insights.py` + `ReviewFinding`/`Deployment`/`RunFeedback` already have the
-  underlying data; there is no aggregated cross-run view surfacing it yet.
+- INR pricing, GST and Razorpay — the billing path is Stripe-only, which blocks
+  the India motion entirely. See `documents/MARKET_RESEARCH_2026-08-25.md` §4.2.
+- Mobile/PWA push for Workspace. The layout is responsive, but a WhatsApp
+  replacement with no push notification on a phone is not one.
+- Voice notes in Workspace — the most-used WhatsApp feature not yet replicated.
+- Attachment *upload*. `Message.attachments` stores and renders a list, but there
+  is no upload endpoint behind it yet; MinIO (`storage_service`) is the obvious home.
 
 ---
 

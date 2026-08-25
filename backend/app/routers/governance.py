@@ -54,6 +54,9 @@ class PolicyBody(BaseModel):
     protected_branches: list[str] = []
     max_files_changed: int = Field(0, ge=0)
     max_run_cost_cents: int = Field(0, ge=0)
+    # 0 means unlimited for both — the same convention as the caps above.
+    max_concurrent_runs: int = Field(0, ge=0)
+    max_queue_depth: int = Field(0, ge=0)
     is_active: bool = True
 
 
@@ -72,6 +75,8 @@ def _policy_out(p: ApprovalPolicy) -> dict:
         "protected_branches": p.protected_branches,
         "max_files_changed": p.max_files_changed,
         "max_run_cost_cents": p.max_run_cost_cents,
+        "max_concurrent_runs": p.max_concurrent_runs or 0,
+        "max_queue_depth": p.max_queue_depth or 0,
         "is_active": p.is_active,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }

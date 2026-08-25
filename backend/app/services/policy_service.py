@@ -43,6 +43,8 @@ DEFAULT_POLICY = {
     "protected_branches": [],
     "max_files_changed": 0,
     "max_run_cost_cents": 0,
+    "max_concurrent_runs": 0,
+    "max_queue_depth": 0,
 }
 
 
@@ -82,6 +84,8 @@ def _as_dict(p: ApprovalPolicy) -> dict:
         "protected_branches": p.protected_branches or [],
         "max_files_changed": p.max_files_changed,
         "max_run_cost_cents": p.max_run_cost_cents,
+        "max_concurrent_runs": p.max_concurrent_runs or 0,
+        "max_queue_depth": p.max_queue_depth or 0,
     }
 
 
@@ -203,3 +207,122 @@ def review_score(findings) -> int:
     weights = {"info": 0, "low": 3, "medium": 8, "high": 20, "critical": 40}
     penalty = sum(weights.get(getattr(f, "severity", "info"), 0) for f in findings)
     return max(0, 100 - penalty)
+
+
+# ── Concurrency: how many runs may be in flight at once ───────────────────────
+#
+# The named gap this closes is Devin's "automations queueing": a cap on
+# concurrent runs plus a bounded queue behind it. It lives here rather than in
+# the Celery task because it is a *policy* decision — the same place an org
+# already says which paths agents may touch and how many approvers a deploy
+# needs — and because the answer has to be identical whether a run was started
+# from the Runs page, from chat, from CI through the public API, or by an agent
+# through MCP.
+#
+# Both limits default to 0 (unlimited), so an org that never configures them
+# sees exactly the behaviour it saw before this existed.
+
+# Statuses that occupy a concurrency slot. `awaiting_approval` deliberately does
+# NOT: a run parked at the gate is waiting on a human who may be asleep, and
+# holding a slot for it would let three un-reviewed PRs deadlock a project's
+# entire pipeline.
+ACTIVE_STATUSES = ("running",)
+QUEUED_STATUSES = ("queued",)
+
+
+@dataclass
+class ConcurrencyDecision:
+    """Whether a run may start now, wait, or be refused outright."""
+    admitted: bool                 # dispatch to Celery immediately
+    queued: bool                   # accepted, but held until a slot frees
+    reason: str | None = None      # set when neither — the run is refused
+    running: int = 0
+    waiting: int = 0
+    limit: int = 0
+
+    def as_dict(self) -> dict:
+        return {
+            "admitted": self.admitted, "queued": self.queued, "reason": self.reason,
+            "running": self.running, "waiting": self.waiting, "limit": self.limit,
+        }
+
+
+def check_concurrency(db: Session, *, project_id, org_id, policy: dict | None = None,
+                      exclude_run_id=None) -> ConcurrencyDecision:
+    """
+    Decide whether a newly created run may start.
+
+    Three outcomes, and the distinction matters to the caller:
+      admitted  — dispatch it now
+      queued    — keep it at `queued` and do not dispatch; a finishing run will
+                  promote it (see `promote_next`)
+      neither   — refuse it, because the queue itself is full. A queue that
+                  grows without bound is not backpressure, it is a memory leak
+                  with a nicer name.
+    """
+    from app.models.run import Run
+
+    # `is None`, not a truthiness test: an explicitly-passed empty policy is a
+    # valid caller intent ("no limits"), and falling through to a DB lookup for
+    # it would both hit the database needlessly and crash any caller that
+    # passed a policy precisely so it would not need a session.
+    if policy is None:
+        policy = resolve_policy(db, org_id=org_id, project_id=project_id)
+    limit = int(policy.get("max_concurrent_runs") or 0)
+    if limit <= 0:
+        return ConcurrencyDecision(admitted=True, queued=False, limit=0)
+
+    def _count(statuses):
+        q = db.query(Run).filter(Run.project_id == project_id, Run.status.in_(statuses))
+        if exclude_run_id is not None:
+            q = q.filter(Run.id != exclude_run_id)
+        return q.count()
+
+    running = _count(ACTIVE_STATUSES)
+    waiting = _count(QUEUED_STATUSES)
+
+    if running < limit:
+        return ConcurrencyDecision(admitted=True, queued=False,
+                                   running=running, waiting=waiting, limit=limit)
+
+    depth = int(policy.get("max_queue_depth") or 0)
+    if depth > 0 and waiting >= depth:
+        return ConcurrencyDecision(
+            admitted=False, queued=False,
+            reason=(f"{running} runs already in flight and the queue is full "
+                    f"({waiting}/{depth}). Wait for one to finish or raise the "
+                    f"limit on policy '{policy.get('name', 'Default')}'."),
+            running=running, waiting=waiting, limit=limit,
+        )
+
+    return ConcurrencyDecision(admitted=False, queued=True,
+                               running=running, waiting=waiting, limit=limit)
+
+
+def promote_next(db: Session, *, project_id, org_id) -> str | None:
+    """
+    A slot just freed. Dispatch the oldest waiting run, if the policy allows.
+
+    Called from the run pipeline's terminal paths. Returns the run id it
+    started, or None. Best-effort by construction: a failure to promote must
+    never turn a run that just *succeeded* into a failure, so the caller wraps
+    this and the queue is drained by the next completion instead.
+    """
+    from app.models.run import Run
+
+    decision = check_concurrency(db, project_id=project_id, org_id=org_id)
+    if not decision.admitted:
+        return None
+
+    nxt = (
+        db.query(Run)
+        .filter(Run.project_id == project_id, Run.status.in_(QUEUED_STATUSES))
+        .order_by(Run.created_at)
+        .first()
+    )
+    if not nxt:
+        return None
+
+    from app.tasks.run_tasks import trigger_run_until_approval
+    trigger_run_until_approval.delay(str(nxt.id))
+    return str(nxt.id)

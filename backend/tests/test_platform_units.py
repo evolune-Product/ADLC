@@ -724,3 +724,360 @@ class TestReviewerSuggestion:
         from app.services.reviewer_suggestion_service import rank
         authors = {"a.py": ["zed"], "b.py": ["amy"]}
         assert rank(authors, exclude=set(), max_reviewers=2) == ["amy", "zed"]
+
+
+# ═══ Workspace — the collaboration layer ══════════════════════════════════════
+#
+# The chat surface is the one place in the product where an *absence* of a check
+# is invisible until it is a breach: a broadcast channel anyone can post to
+# still looks like a working channel, and a mention parser that matches the
+# wrong principal still looks like a delivered message. These pin the rules that
+# have no UI symptom when they break.
+
+class _StubQuery:
+    """Minimal SQLAlchemy query stand-in — filter() chains, first() answers."""
+    def __init__(self, result=None):
+        self._result = result
+
+    def filter(self, *_args, **_kwargs):
+        return self
+
+    def first(self):
+        return self._result
+
+    def all(self):
+        return self._result or []
+
+
+class _StubSession:
+    def __init__(self, by_model=None):
+        self._by_model = by_model or {}
+
+    def query(self, model, *_rest):
+        return _StubQuery(self._by_model.get(model))
+
+
+class TestChannelSlugs:
+    def test_slug_is_lowercase_and_dashed(self):
+        from app.services.workspace_service import slugify
+        assert slugify("Payments Squad") == "payments-squad"
+
+    def test_punctuation_collapses_to_single_dash(self):
+        from app.services.workspace_service import slugify
+        assert slugify("QA / Release  ->  prod!") == "qa-release-prod"
+
+    def test_leading_and_trailing_separators_are_trimmed(self):
+        from app.services.workspace_service import slugify
+        assert slugify("  #general  ") == "general"
+
+    def test_empty_name_still_yields_a_usable_slug(self):
+        # A NULL or all-punctuation name must not produce an empty slug — the
+        # partial unique index would then collide every such channel together.
+        from app.services.workspace_service import slugify
+        assert slugify("!!!").startswith("channel-")
+        assert slugify("") != ""
+
+
+class TestBroadcastChannelIsReadOnly:
+    """
+    The WhatsApp-Channel shape: admins publish, everyone else reads.
+
+    This asymmetry is the entire reason the `broadcast` kind exists. Enforced in
+    the service, never only in the UI — a UI-only rule is a suggestion.
+    """
+    def _channel(self, kind):
+        return types.SimpleNamespace(id="c1", kind=kind, is_archived=False)
+
+    def test_ordinary_member_cannot_post_to_broadcast(self, monkeypatch):
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "is_member", lambda db, c, u: types.SimpleNamespace(role="member"))
+        allowed, reason = ws.can_post(None, self._channel("broadcast"), "u1")
+        assert allowed is False
+        assert "admin" in reason.lower()
+
+    def test_admin_can_post_to_broadcast(self, monkeypatch):
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "is_member", lambda db, c, u: types.SimpleNamespace(role="admin"))
+        allowed, _ = ws.can_post(None, self._channel("broadcast"), "u1")
+        assert allowed is True
+
+    def test_non_member_cannot_post_to_broadcast(self, monkeypatch):
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "is_member", lambda db, c, u: None)
+        allowed, _ = ws.can_post(None, self._channel("broadcast"), "u1")
+        assert allowed is False
+
+    def test_ordinary_member_can_post_to_a_normal_channel(self, monkeypatch):
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "is_member", lambda db, c, u: types.SimpleNamespace(role="member"))
+        allowed, _ = ws.can_post(None, self._channel("channel"), "u1")
+        assert allowed is True
+
+    def test_archived_channel_rejects_everyone(self, monkeypatch):
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "is_member", lambda db, c, u: types.SimpleNamespace(role="owner"))
+        ch = types.SimpleNamespace(id="c1", kind="channel", is_archived=True)
+        allowed, reason = ws.can_post(None, ch, "u1")
+        assert allowed is False and "archived" in reason.lower()
+
+    def test_non_member_cannot_post_to_private(self, monkeypatch):
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "is_member", lambda db, c, u: None)
+        allowed, _ = ws.can_post(None, self._channel("private"), "u1")
+        assert allowed is False
+
+
+class TestChannelReadAccess:
+    def test_public_channels_are_readable_without_membership(self, monkeypatch):
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "is_member", lambda db, c, u: None)
+        for kind in ("channel", "broadcast"):
+            ch = types.SimpleNamespace(id="c1", kind=kind)
+            assert ws.can_read(None, ch, "u1") is True
+
+    def test_private_and_dms_require_membership(self, monkeypatch):
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "is_member", lambda db, c, u: None)
+        for kind in ("private", "dm", "group_dm"):
+            ch = types.SimpleNamespace(id="c1", kind=kind)
+            assert ws.can_read(None, ch, "u1") is False
+
+
+class TestMentionParsing:
+    """
+    Mentions are parsed once at write time and stored on the row. A parser that
+    resolves the wrong principal sends work to the wrong agent, so the
+    agent-before-human precedence is pinned here rather than left to import order.
+    """
+    def _channel(self):
+        return types.SimpleNamespace(id="c1", user_id="u1", kind="channel")
+
+    def _db(self, agents=(), users=()):
+        from app.models.agent import Agent
+        return _StubSession({Agent: list(agents)})
+
+    def test_plain_text_has_no_mentions(self):
+        from app.services import workspace_service as ws
+        out = ws.parse_mentions(self._db(), "shipping this today", self._channel(), None)
+        assert out == {"users": [], "agents": [], "channel": False, "here": False}
+
+    def test_at_channel_and_at_here_are_broadcast_flags(self):
+        from app.services import workspace_service as ws
+        db = self._db()
+        assert ws.parse_mentions(db, "@channel heads up", self._channel(), None)["channel"] is True
+        assert ws.parse_mentions(db, "@here quick one", self._channel(), None)["here"] is True
+
+    def test_agent_is_matched_by_name_slug(self, monkeypatch):
+        from app.services import workspace_service as ws
+        from app.models.agent import Agent
+        agent = types.SimpleNamespace(id="a1", name="QA Bot", role="qa", is_active=True)
+        db = _StubSession({Agent: [agent]})
+        monkeypatch.setattr(ws, "_workspace_users", lambda *a, **k: [])
+        out = ws.parse_mentions(db, "@qa-bot please check PROJ-1", self._channel(), None)
+        assert out["agents"] == ["a1"]
+
+    def test_agent_is_matched_by_role(self, monkeypatch):
+        from app.services import workspace_service as ws
+        from app.models.agent import Agent
+        agent = types.SimpleNamespace(id="a1", name="Sentinel", role="qa", is_active=True)
+        db = _StubSession({Agent: [agent]})
+        monkeypatch.setattr(ws, "_workspace_users", lambda *a, **k: [])
+        assert ws.parse_mentions(db, "@qa take a look", self._channel(), None)["agents"] == ["a1"]
+
+    def test_agent_wins_over_a_user_with_the_same_handle(self, monkeypatch):
+        # "@qa please look" in a channel that has a QA agent means the agent.
+        # If this ever flips, mentions silently stop starting runs.
+        from app.services import workspace_service as ws
+        from app.models.agent import Agent
+        agent = types.SimpleNamespace(id="a1", name="qa", role="qa", is_active=True)
+        user = types.SimpleNamespace(id="u9", email="qa@acme.com", name="Quinn")
+        db = _StubSession({Agent: [agent]})
+        monkeypatch.setattr(ws, "_workspace_users", lambda *a, **k: [user])
+        out = ws.parse_mentions(db, "@qa please look", self._channel(), None)
+        assert out["agents"] == ["a1"]
+        assert out["users"] == []
+
+    def test_user_matched_on_email_local_part(self, monkeypatch):
+        from app.services import workspace_service as ws
+        user = types.SimpleNamespace(id="u9", email="priya@acme.com", name="Priya R")
+        monkeypatch.setattr(ws, "_workspace_users", lambda *a, **k: [user])
+        out = ws.parse_mentions(self._db(), "@priya can you review?", self._channel(), None)
+        assert out["users"] == ["u9"]
+
+    def test_trailing_punctuation_is_not_part_of_the_handle(self, monkeypatch):
+        from app.services import workspace_service as ws
+        user = types.SimpleNamespace(id="u9", email="dev@acme.com", name="Dev")
+        monkeypatch.setattr(ws, "_workspace_users", lambda *a, **k: [user])
+        out = ws.parse_mentions(self._db(), "ping @dev.", self._channel(), None)
+        assert out["users"] == ["u9"]
+
+    def test_email_addresses_do_not_create_phantom_mentions(self, monkeypatch):
+        # "mail me at foo@bar.com" must not mention anyone called `bar.com`.
+        from app.services import workspace_service as ws
+        monkeypatch.setattr(ws, "_workspace_users", lambda *a, **k: [])
+        out = ws.parse_mentions(self._db(), "mail me at foo@bar.com", self._channel(), None)
+        assert out["users"] == [] and out["agents"] == []
+
+
+class TestNotificationRecipients:
+    """
+    Who a message is allowed to interrupt. Mute and notify_level are the two
+    settings that decide whether this product is liveable at 2am.
+    """
+    def _member(self, uid, notify_level="all", muted=False):
+        return types.SimpleNamespace(user_id=uid, notify_level=notify_level, is_muted=muted)
+
+    def _run(self, members, mentions, author="author"):
+        from app.services import workspace_service as ws
+        from app.models.workspace import ChannelMember
+        db = _StubSession({ChannelMember: members})
+        ch = types.SimpleNamespace(id="c1")
+        return [m.user_id for m in ws._recipients(db, ch, mentions, author)]
+
+    def test_author_never_notifies_themselves(self):
+        members = [self._member("author"), self._member("u2")]
+        assert self._run(members, {}) == ["u2"]
+
+    def test_notify_none_is_absolute(self):
+        members = [self._member("u2", notify_level="none")]
+        assert self._run(members, {"users": ["u2"]}) == []
+
+    def test_mentions_only_skips_ordinary_traffic(self):
+        members = [self._member("u2", notify_level="mentions")]
+        assert self._run(members, {}) == []
+
+    def test_mentions_only_still_receives_a_direct_mention(self):
+        members = [self._member("u2", notify_level="mentions")]
+        assert self._run(members, {"users": ["u2"]}) == ["u2"]
+
+    def test_muted_channel_is_pierced_by_a_direct_mention(self):
+        # Mute means "do not interrupt me for chatter", not "never reach me".
+        members = [self._member("u2", muted=True)]
+        assert self._run(members, {"users": ["u2"]}) == ["u2"]
+
+    def test_muted_channel_swallows_ordinary_traffic(self):
+        members = [self._member("u2", muted=True)]
+        assert self._run(members, {}) == []
+
+    def test_at_channel_reaches_everyone_who_has_not_opted_out(self):
+        members = [self._member("u2", muted=True), self._member("u3", notify_level="mentions")]
+        assert sorted(self._run(members, {"channel": True})) == ["u2", "u3"]
+
+
+class TestRunNarration:
+    def test_only_human_meaningful_events_are_narrated(self):
+        # The step firehose belongs on the run trace page, not in a channel a
+        # human is trying to read.
+        from app.services.workspace_bridge import NARRATED
+        assert "run:step:log" not in NARRATED
+        assert "run:step:started" not in NARRATED
+
+    def test_the_events_a_team_must_see_are_all_present(self):
+        from app.services.workspace_bridge import NARRATED
+        for event in ("run:started", "run:awaiting_approval", "run:completed",
+                      "run:failed", "run:policy:blocked"):
+            assert event in NARRATED
+
+    def test_approval_is_the_only_gate_severity_that_warns(self):
+        from app.services.workspace_bridge import NARRATED
+        assert NARRATED["run:awaiting_approval"][1] == "warning"
+        assert NARRATED["run:failed"][1] == "critical"
+
+
+class TestTicketKeyExtraction:
+    def test_finds_a_standard_tracker_key(self):
+        from app.services.workspace_bridge import _TICKET_RE
+        assert _TICKET_RE.search("please pick up PROJ-214 today").group(1) == "PROJ-214"
+
+    def test_matches_lowercase_as_typed_in_chat(self):
+        from app.services.workspace_bridge import _TICKET_RE
+        assert _TICKET_RE.search("proj-7 is broken") is not None
+
+    def test_does_not_match_a_bare_number_or_a_date(self):
+        from app.services.workspace_bridge import _TICKET_RE
+        assert _TICKET_RE.search("deployed 214 changes") is None
+        assert _TICKET_RE.search("on 2026-08") is None
+
+
+class TestMessagePreviewIsBounded:
+    def test_preview_is_truncated_to_the_column_width(self):
+        # last_message_preview is String(280); an untruncated body would raise
+        # on insert and take the whole message with it.
+        from app.services.workspace_service import _preview
+        assert len(_preview("x" * 5000, "user")) == 280
+
+    def test_newlines_are_flattened_for_the_sidebar(self):
+        from app.services.workspace_service import _preview
+        assert "\n" not in _preview("line one\nline two", "user")
+
+    def test_an_empty_system_message_still_reads_as_something(self):
+        from app.services.workspace_service import _preview
+        assert _preview("", "system") == "Run update"
+
+
+# ═══ Run concurrency ══════════════════════════════════════════════════════════
+#
+# Devin's "automations queueing", as a policy rather than a queue setting. The
+# rules with no visible symptom when they break: an unlimited default must stay
+# unlimited, a run parked at the approval gate must not hold a slot, and a full
+# queue must refuse rather than accept work that will never start.
+
+class TestConcurrencyPolicyDefaults:
+    def test_zero_limit_means_unlimited(self):
+        from app.services import policy_service as ps
+        d = ps.check_concurrency(None, project_id="p", org_id=None,
+                                 policy={"max_concurrent_runs": 0})
+        assert d.admitted is True and d.queued is False and d.limit == 0
+
+    def test_missing_key_is_treated_as_unlimited(self):
+        # A policy dict from before these columns existed must not start
+        # silently throttling every project to zero.
+        from app.services import policy_service as ps
+        d = ps.check_concurrency(None, project_id="p", org_id=None, policy={})
+        assert d.admitted is True
+
+    def test_default_policy_carries_both_limits_unset(self):
+        from app.services.policy_service import DEFAULT_POLICY
+        assert DEFAULT_POLICY["max_concurrent_runs"] == 0
+        assert DEFAULT_POLICY["max_queue_depth"] == 0
+
+
+class TestConcurrencySlotAccounting:
+    """
+    A run waiting at the approval gate must NOT hold a slot.
+
+    If it did, three un-reviewed PRs would deadlock a project's whole pipeline
+    until a human woke up — which is the exact failure mode a concurrency cap is
+    supposed to prevent, not cause.
+    """
+    def test_awaiting_approval_does_not_occupy_a_slot(self):
+        from app.services.policy_service import ACTIVE_STATUSES
+        assert "awaiting_approval" not in ACTIVE_STATUSES
+        assert "running" in ACTIVE_STATUSES
+
+    def test_completed_and_failed_do_not_occupy_a_slot(self):
+        from app.services.policy_service import ACTIVE_STATUSES
+        assert "completed" not in ACTIVE_STATUSES
+        assert "failed" not in ACTIVE_STATUSES
+
+    def test_queued_is_the_waiting_state_not_the_active_one(self):
+        from app.services.policy_service import ACTIVE_STATUSES, QUEUED_STATUSES
+        assert "queued" in QUEUED_STATUSES
+        assert "queued" not in ACTIVE_STATUSES
+
+
+class TestConcurrencyDecisionShape:
+    def test_decision_serialises_every_field_the_client_needs(self):
+        from app.services.policy_service import ConcurrencyDecision
+        d = ConcurrencyDecision(admitted=False, queued=True, running=3, waiting=1, limit=3)
+        out = d.as_dict()
+        assert set(out) == {"admitted", "queued", "reason", "running", "waiting", "limit"}
+
+    def test_queued_and_refused_are_distinguishable(self):
+        # The caller must be able to tell "wait" from "no" — one keeps the run,
+        # the other deletes it and returns 429.
+        from app.services.policy_service import ConcurrencyDecision
+        queued = ConcurrencyDecision(admitted=False, queued=True)
+        refused = ConcurrencyDecision(admitted=False, queued=False, reason="queue full")
+        assert queued.reason is None
+        assert refused.reason is not None and refused.queued is False

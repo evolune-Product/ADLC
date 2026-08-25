@@ -47,6 +47,17 @@ class ApprovalPolicy(Base):
     max_files_changed: Mapped[int] = mapped_column(Integer, default=0)     # 0 = unlimited
     max_run_cost_cents: Mapped[int] = mapped_column(Integer, default=0)    # 0 = plan default
 
+    # Concurrency controls. Blast radius is not only "what one run may touch" —
+    # it is also "how many runs may be touching at once". Six agents opening PRs
+    # against one repo in parallel is a merge-conflict generator and a way to
+    # exhaust a month's quota in an afternoon, and neither is visible in a
+    # per-run cost cap.
+    #
+    # Both default to 0, meaning unlimited, so an existing policy row keeps
+    # behaving exactly as it did before this column existed.
+    max_concurrent_runs: Mapped[int] = mapped_column(Integer, default=0)   # 0 = unlimited
+    max_queue_depth: Mapped[int] = mapped_column(Integer, default=0)       # 0 = unlimited
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

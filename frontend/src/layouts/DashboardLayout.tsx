@@ -5,6 +5,7 @@ import {
   FolderOpen, Play, ClipboardList, Settings, LogOut,
   Menu, X, Users, Building2,
   BarChart3, CreditCard, Shield, Store, Terminal, FileCheck,
+  MessagesSquare, Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -18,6 +19,10 @@ const NAV = [
   {
     items: [
       { label: 'Dashboard',   to: '/dashboard',   icon: LayoutDashboard },
+      // Above every group on purpose. The conversation is where a team starts
+      // its day; burying it under "Build" is how a chat surface goes unused and
+      // the WhatsApp group survives.
+      { label: 'Workspace',   to: '/workspace',   icon: MessagesSquare },
     ],
   },
   {
@@ -41,6 +46,7 @@ const NAV = [
     group: 'Observe',
     items: [
       { label: 'Insights',    to: '/analytics',   icon: BarChart3 },
+      { label: 'Pulse',       to: '/pulse',       icon: Activity },
       { label: 'Audit Log',   to: '/audit',       icon: ClipboardList },
       { label: 'Compliance',  to: '/compliance',  icon: FileCheck },
     ],

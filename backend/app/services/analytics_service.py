@@ -280,3 +280,248 @@ def export_rows(db: Session, project_ids: list[uuid.UUID], *, days: int = 90) ->
             "completed_at": r.completed_at.isoformat() if r.completed_at else "",
         })
     return out
+
+
+# ── Engineering Pulse ─────────────────────────────────────────────────────────
+#
+# The cross-run view an engineering manager actually needs, and the named gap
+# against Rovo's "AI Pulse". `summary()` answers "was this worth it?" for a
+# finance conversation; this answers "where is my delivery pipeline stuck, and
+# do I trust what it produced?" for a standup.
+#
+# Everything here is derived from rows this platform already writes — Run,
+# RunStep, Approval, Deployment, ReviewFinding, RunFeedback. Nothing is
+# estimated, and every metric is traceable to a run id, because a productivity
+# dashboard an engineer can argue with is a dashboard nobody acts on.
+
+# The DORA change-failure definition used here: a deploy that failed outright or
+# was later rolled back. Deliberately narrow — counting "a run that failed before
+# it ever deployed" as a change failure would conflate a flaky agent with a
+# broken production release, and those need different responses.
+FAILED_DEPLOY_STATUSES = ("failed", "rolled_back")
+
+
+def _trend(current: float, previous: float) -> dict:
+    """Direction and magnitude versus the preceding window of equal length."""
+    if previous == 0:
+        return {"direction": "flat" if current == 0 else "up", "change_pct": None}
+    delta = (current - previous) / previous * 100
+    direction = "flat" if abs(delta) < 5 else ("up" if delta > 0 else "down")
+    return {"direction": direction, "change_pct": round(delta, 1)}
+
+
+def pulse(db: Session, project_ids: list[uuid.UUID], *, days: int = 30) -> dict:
+    """
+    Delivery health across every run in the window.
+
+    Four blocks, in the order a manager reads them:
+      flow        — DORA-shaped: how often we ship, how long it takes, how often it breaks
+      bottleneck  — which pipeline stage and which reviewer the queue is waiting on
+      quality     — what the Reviewer agent keeps finding, and whether it is getting worse
+      trust       — whether humans accept the output, measured rather than assumed
+    """
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
+    prev_since = now - timedelta(days=days * 2)
+
+    if not project_ids:
+        return _empty_pulse(days)
+
+    runs = db.query(Run).filter(Run.project_id.in_(project_ids), Run.created_at >= since).all()
+    prev_runs = (
+        db.query(Run)
+        .filter(Run.project_id.in_(project_ids),
+                Run.created_at >= prev_since, Run.created_at < since)
+        .all()
+    )
+    run_ids = [r.id for r in runs]
+
+    deploys = (
+        db.query(Deployment)
+        .filter(Deployment.project_id.in_(project_ids), Deployment.created_at >= since)
+        .all()
+    )
+
+    # ── Flow ──────────────────────────────────────────────────────────────────
+    succeeded = [d for d in deploys if d.status == "succeeded"]
+    broken = [d for d in deploys if d.status in FAILED_DEPLOY_STATUSES]
+
+    lead_times = []
+    for d in succeeded:
+        if not d.run_id or not d.created_at:
+            continue
+        run = next((r for r in runs if r.id == d.run_id), None)
+        if run and run.created_at:
+            lead_times.append((d.created_at - run.created_at).total_seconds() / 3600)
+
+    completed = [r for r in runs if r.status == "completed"]
+    prev_completed = [r for r in prev_runs if r.status == "completed"]
+
+    flow = {
+        "deploys": len(deploys),
+        "deploys_per_week": round(len(deploys) / max(days / 7, 1), 2),
+        "median_lead_time_hours": round(_median(lead_times), 2),
+        "change_failure_rate": round(len(broken) / len(deploys) * 100, 1) if deploys else 0.0,
+        "runs_completed": len(completed),
+        "throughput_trend": _trend(len(completed), len(prev_completed)),
+    }
+
+    # ── Bottleneck ────────────────────────────────────────────────────────────
+    # Which agent role eats the clock, and which human the queue waits on.
+    by_stage: dict[str, list[float]] = defaultdict(list)
+    steps = (
+        db.query(RunStep)
+        .filter(RunStep.run_id.in_(run_ids) if run_ids else False)
+        .all()
+    )
+    for st in steps:
+        if st.agent_role and st.duration_ms:
+            by_stage[st.agent_role].append(st.duration_ms / 1000 / 60)   # minutes
+
+    stages = sorted(
+        ({"stage": role,
+          "median_minutes": round(_median(mins), 1),
+          "runs": len(mins)} for role, mins in by_stage.items()),
+        key=lambda s: s["median_minutes"],
+        reverse=True,
+    )
+
+    # Approval latency per reviewer. This is the number that turns "the agents
+    # are slow" into "the agents finished in nine minutes and waited eleven
+    # hours for me" — which is usually the truth, and only visible here.
+    approvals = (
+        db.query(Approval)
+        .filter(Approval.run_id.in_(run_ids) if run_ids else False)
+        .all()
+    )
+    per_reviewer: dict[str, list[float]] = defaultdict(list)
+    for a in approvals:
+        run = next((r for r in runs if r.id == a.run_id), None)
+        if not run or not a.created_at:
+            continue
+        last_dev = (
+            db.query(RunStep)
+            .filter(RunStep.run_id == run.id, RunStep.agent_role == "dev")
+            .order_by(RunStep.created_at.desc())
+            .first()
+        )
+        if last_dev and last_dev.created_at:
+            hours = (a.created_at - last_dev.created_at).total_seconds() / 3600
+            if hours >= 0:
+                per_reviewer[str(a.reviewer_id)].append(hours)
+
+    reviewers = sorted(
+        ({"reviewer_id": rid,
+          "decisions": len(hrs),
+          "median_wait_hours": round(_median(hrs), 2)} for rid, hrs in per_reviewer.items()),
+        key=lambda r: r["median_wait_hours"],
+        reverse=True,
+    )
+
+    waiting = [r for r in runs if r.status == "awaiting_approval"]
+    oldest_wait = 0.0
+    if waiting:
+        oldest = min(w.created_at for w in waiting if w.created_at)
+        oldest_wait = round((now - oldest).total_seconds() / 3600, 1)
+
+    bottleneck = {
+        "slowest_stage": stages[0]["stage"] if stages else None,
+        "stages": stages,
+        "reviewers": reviewers[:10],
+        "awaiting_approval": len(waiting),
+        "oldest_wait_hours": oldest_wait,
+    }
+
+    # ── Quality ───────────────────────────────────────────────────────────────
+    from app.models.insight import ReviewFinding
+
+    findings = (
+        db.query(ReviewFinding)
+        .filter(ReviewFinding.run_id.in_(run_ids) if run_ids else False)
+        .all()
+    )
+    by_severity: dict[str, int] = defaultdict(int)
+    by_category: dict[str, int] = defaultdict(int)
+    for f in findings:
+        by_severity[f.severity or "info"] += 1
+        by_category[f.category or "quality"] += 1
+
+    prev_findings = (
+        db.query(func.count(ReviewFinding.id))
+        .filter(ReviewFinding.run_id.in_([r.id for r in prev_runs]) if prev_runs else False)
+        .scalar()
+    ) or 0
+
+    quality = {
+        "findings_total": len(findings),
+        "by_severity": dict(by_severity),
+        "by_category": dict(by_category),
+        "blocking_findings": by_severity.get("critical", 0) + by_severity.get("high", 0),
+        "findings_per_run": round(len(findings) / len(completed), 2) if completed else 0.0,
+        "trend": _trend(len(findings), prev_findings),
+    }
+
+    # ── Trust ─────────────────────────────────────────────────────────────────
+    # Measured, not assumed. `human_edits_loc` is the honest signal: how much a
+    # person had to rewrite after the agent was "done".
+    feedback = (
+        db.query(RunFeedback)
+        .filter(RunFeedback.run_id.in_(run_ids) if run_ids else False)
+        .all()
+    )
+    positive = len([f for f in feedback if f.rating > 0])
+    negative = len([f for f in feedback if f.rating < 0])
+    edits = [f.human_edits_loc for f in feedback if f.human_edits_loc]
+
+    changes_requested = len([a for a in approvals if a.decision == "changes_requested"])
+    first_pass = len(approvals) - changes_requested
+
+    trust = {
+        "feedback_count": len(feedback),
+        "positive": positive,
+        "negative": negative,
+        "approval_rate_first_pass": (
+            round(first_pass / len(approvals) * 100, 1) if approvals else None
+        ),
+        "changes_requested": changes_requested,
+        "median_human_edits_loc": round(_median([float(e) for e in edits]), 1),
+        "top_complaints": _top_categories(feedback),
+    }
+
+    return {
+        "window_days": days,
+        "flow": flow,
+        "bottleneck": bottleneck,
+        "quality": quality,
+        "trust": trust,
+    }
+
+
+def _top_categories(feedback: list) -> list[dict]:
+    """The reasons humans gave for rejecting agent output, most common first."""
+    counts: dict[str, int] = defaultdict(int)
+    for f in feedback:
+        if f.rating < 0 and f.category:
+            counts[f.category] += 1
+    return sorted(
+        ({"category": k, "count": v} for k, v in counts.items()),
+        key=lambda c: c["count"],
+        reverse=True,
+    )[:5]
+
+
+def _empty_pulse(days: int) -> dict:
+    return {
+        "window_days": days,
+        "flow": {"deploys": 0, "deploys_per_week": 0.0, "median_lead_time_hours": 0.0,
+                 "change_failure_rate": 0.0, "runs_completed": 0,
+                 "throughput_trend": {"direction": "flat", "change_pct": None}},
+        "bottleneck": {"slowest_stage": None, "stages": [], "reviewers": [],
+                       "awaiting_approval": 0, "oldest_wait_hours": 0.0},
+        "quality": {"findings_total": 0, "by_severity": {}, "by_category": {},
+                    "blocking_findings": 0, "findings_per_run": 0.0,
+                    "trend": {"direction": "flat", "change_pct": None}},
+        "trust": {"feedback_count": 0, "positive": 0, "negative": 0,
+                  "approval_rate_first_pass": None, "changes_requested": 0,
+                  "median_human_edits_loc": 0.0, "top_complaints": []},
+    }

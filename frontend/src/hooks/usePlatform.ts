@@ -12,7 +12,7 @@ import type {
   AgentScore, AnalyticsPoint, AnalyticsSummary, ApiKeyRecord, ApprovalPolicy,
   BacklogTicket, BillingState, DeploymentRecord, MemoryHit, MemoryStatus, Notification,
   NotificationSettings, Plan, ReviewResult, SourceReadResult, SprintPlan, Template, WebhookDelivery, WebhookRecord,
-  ComplianceControl,
+  ComplianceControl, EngineeringPulse,
 } from '@/types/platform'
 
 const err = (fallback: string) => (e: unknown) => toast.error(getApiError(e, fallback))
@@ -157,6 +157,13 @@ export function useAnalyticsTimeseries(days = 30) {
   return useQuery<AnalyticsPoint[]>({
     queryKey: ['analytics', 'timeseries', days],
     queryFn: () => api.get('/analytics/timeseries', { params: { days } }).then((r) => r.data),
+  })
+}
+
+export function usePulse(days = 30) {
+  return useQuery<EngineeringPulse>({
+    queryKey: ['analytics', 'pulse', days],
+    queryFn: () => api.get('/analytics/pulse', { params: { days } }).then((r) => r.data),
   })
 }
 

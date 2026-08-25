@@ -40,17 +40,20 @@ import OrgMembersPage from '@/pages/org/OrgMembersPage'
 import AcceptInvitePage from '@/pages/org/AcceptInvitePage'
 import BillingPage from '@/pages/billing/BillingPage'
 import AnalyticsPage from '@/pages/analytics/AnalyticsPage'
+import PulsePage from '@/pages/analytics/PulsePage'
 import MarketplacePage from '@/pages/marketplace/MarketplacePage'
 import PoliciesPage from '@/pages/governance/PoliciesPage'
 import DeveloperPage from '@/pages/governance/DeveloperPage'
 import CompliancePage from '@/pages/governance/CompliancePage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
+import WorkspacePage from '@/pages/workspace/WorkspacePage'
 
 import NotFoundPage from '@/pages/NotFoundPage'
 
 import { useAuthStore } from '@/stores/authStore'
 import { isAuthenticated } from '@/lib/auth'
 import api, { getApiError } from '@/lib/api'
+import { connectSocket, joinUserRoom } from '@/lib/socket'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,8 +82,12 @@ function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+/** How often the client tells the server it is still here. Must be comfortably
+ *  under the server's PRESENCE_TTL (5 minutes) or an active user goes grey. */
+const PRESENCE_HEARTBEAT_MS = 90_000
+
 function AppInit() {
-  const { setUser, isAuthenticated: authed } = useAuthStore()
+  const { setUser, user, isAuthenticated: authed } = useAuthStore()
 
   useEffect(() => {
     if (isAuthenticated() && !authed) {
@@ -95,6 +102,32 @@ function AppInit() {
       }).catch(() => {})
     }
   }, [authed, setUser])
+
+  // The socket is connected once for the whole session rather than per page.
+  // The workspace needs it everywhere — a DM that arrives while you are on the
+  // Runs page has to light up the sidebar there, not on the next refresh.
+  useEffect(() => {
+    if (!user?.id) return
+    connectSocket()
+    joinUserRoom(user.id)
+
+    // Presence heartbeat. Every failure is swallowed: being shown as offline is
+    // a cosmetic problem, and a toast about it on every tick would not be.
+    const beat = () => { api.put('/workspace/presence', { status: 'active' }).catch(() => {}) }
+    beat()
+    const timer = setInterval(beat, PRESENCE_HEARTBEAT_MS)
+
+    // Coming back to the tab is the strongest signal that someone is present,
+    // and the cheapest place to catch a heartbeat the browser froze while the
+    // tab was backgrounded.
+    const onVisible = () => { if (document.visibilityState === 'visible') beat() }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [user?.id])
 
   return null
 }
@@ -135,11 +168,16 @@ export default function App() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/billing" element={<BillingPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route path="/pulse" element={<PulsePage />} />
               <Route path="/marketplace" element={<MarketplacePage />} />
               <Route path="/policies" element={<PoliciesPage />} />
               <Route path="/developer" element={<DeveloperPage />} />
               <Route path="/compliance" element={<CompliancePage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              {/* Both forms render the same page; the bare path picks a
+                  channel rather than showing an empty pane. */}
+              <Route path="/workspace" element={<WorkspacePage />} />
+              <Route path="/workspace/:channelId" element={<WorkspacePage />} />
               <Route path="/org/new" element={<NewOrgPage />} />
               <Route path="/org/:orgId/settings" element={<OrgSettingsPage />} />
               <Route path="/org/:orgId/members" element={<OrgMembersPage />} />

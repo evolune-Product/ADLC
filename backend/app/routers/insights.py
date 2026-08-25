@@ -74,6 +74,26 @@ def analytics_summary(
                                      manual_hours=manual_hours, hourly_rate=hourly_rate)
 
 
+@router.get("/analytics/pulse")
+def analytics_pulse(
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    """
+    Engineering Pulse — delivery health, not ROI.
+
+    Separate from `/analytics/summary` because they answer different questions
+    for different people. Summary is the number an engineering leader takes to
+    finance. Pulse is the one they look at on a Monday to find out which stage
+    the pipeline is stuck in and whether the team actually trusts the output.
+    Merging them would produce a dashboard that serves neither.
+    """
+    ids = _scoped_project_ids(db, current_user, org_ctx)
+    return analytics_service.pulse(db, ids, days=days)
+
+
 @router.get("/analytics/timeseries")
 def analytics_timeseries(
     days: int = Query(30, ge=1, le=365),

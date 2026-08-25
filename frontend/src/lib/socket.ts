@@ -28,3 +28,23 @@ export function joinRunRoom(runId: string): void {
 export function leaveRunRoom(runId: string): void {
   getSocket().emit('leave_run', { run_id: runId })
 }
+
+// ─── Workspace rooms ─────────────────────────────────────────────────────────
+//
+// Two rooms, two jobs. `channel:` carries the message firehose for the channel
+// you are looking at and is joined and left as you navigate. `user:` carries
+// sidebar-level facts — an unread bumped, a channel read on your phone — and is
+// joined once for the session, because a DM that arrives while you are on the
+// Runs page has to light up the sidebar there too.
+
+export function joinChannelRoom(channelId: string): void {
+  getSocket().emit('join_channel', { channel_id: channelId })
+}
+
+export function leaveChannelRoom(channelId: string): void {
+  getSocket().emit('leave_channel', { channel_id: channelId })
+}
+
+export function joinUserRoom(userId: string): void {
+  getSocket().emit('join_user', { user_id: userId })
+}

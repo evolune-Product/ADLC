@@ -325,3 +325,62 @@ export interface MemoryHit {
   tokens: number
   excerpt: string
 }
+
+// ─── Engineering Pulse ───────────────────────────────────────────────────────
+// Mirrors `analytics_service.pulse()`. Four blocks, in the order a manager
+// reads them: flow → bottleneck → quality → trust.
+
+export interface PulseTrend {
+  direction: 'up' | 'down' | 'flat'
+  /** Null when there is no prior window to compare against. */
+  change_pct: number | null
+}
+
+export interface PulseStage {
+  stage: string
+  median_minutes: number
+  runs: number
+}
+
+export interface PulseReviewer {
+  reviewer_id: string
+  decisions: number
+  median_wait_hours: number
+}
+
+export interface EngineeringPulse {
+  window_days: number
+  flow: {
+    deploys: number
+    deploys_per_week: number
+    median_lead_time_hours: number
+    change_failure_rate: number
+    runs_completed: number
+    throughput_trend: PulseTrend
+  }
+  bottleneck: {
+    slowest_stage: string | null
+    stages: PulseStage[]
+    reviewers: PulseReviewer[]
+    awaiting_approval: number
+    oldest_wait_hours: number
+  }
+  quality: {
+    findings_total: number
+    by_severity: Record<string, number>
+    by_category: Record<string, number>
+    blocking_findings: number
+    findings_per_run: number
+    trend: PulseTrend
+  }
+  trust: {
+    feedback_count: number
+    positive: number
+    negative: number
+    /** Null when no approvals have been recorded in the window. */
+    approval_rate_first_pass: number | null
+    changes_requested: number
+    median_human_edits_loc: number
+    top_complaints: Array<{ category: string; count: number }>
+  }
+}
