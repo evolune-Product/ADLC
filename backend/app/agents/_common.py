@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass, field
 
+from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
 from app.models.billing import Subscription
+from app.models.integration import ModelCredential
 from app.models.project import Project
 from app.models.run import Run, RunStep
 from app.services import llm_service, memory_service, metering_service
@@ -45,18 +48,86 @@ def run_owner(db: Session, run_id) -> tuple[uuid.UUID | None, uuid.UUID | None]:
     return project.user_id, project.org_id
 
 
-def byo_llm(db: Session, user_id, org_id) -> tuple[str | None, str | None]:
-    """Decrypted bring-your-own LLM credentials for this workspace, if any."""
+@dataclass
+class WorkspaceCredential:
+    """Which key, endpoint and rates to use for one model call."""
+    provider: str | None = None
+    api_key: str | None = None
+    base_url: str | None = None
+    price_overrides: dict = field(default_factory=dict)
+
+    @property
+    def is_byo(self) -> bool:
+        """True when the workspace supplied the credential, key or not — a
+        local Ollama with no key is still their infrastructure, not ours, and
+        must not be billed as platform spend."""
+        return bool(self.provider or self.api_key)
+
+
+def workspace_credential(db: Session, user_id, org_id, model: str | None = None) -> WorkspaceCredential:
+    """
+    The credential this workspace wants used for `model`.
+
+    Looks in two places, newest first:
+
+      1. `ModelCredential` rows — one per provider, which is what lets a team
+         run Claude for the Dev agent and a local Ollama for QA in the same
+         workspace.
+      2. `Subscription.byo_llm_*` — the original single key. Still honoured so
+         no existing workspace breaks on upgrade; nothing new writes to it.
+
+    Returns an empty credential when neither exists, which sends the call to
+    the platform key if this deployment has one configured.
+    """
+    provider = llm_service.provider_for_model(model or llm_service.DEFAULT_MODEL)
+
+    cred = (
+        db.query(ModelCredential)
+        .filter(
+            ModelCredential.provider == provider,
+            ModelCredential.is_active.is_(True),
+            ModelCredential.org_id == org_id if org_id
+            else and_(ModelCredential.user_id == user_id, ModelCredential.org_id.is_(None)),
+        )
+        .first()
+    )
+    if cred:
+        key = None
+        if cred.api_key:
+            try:
+                key = decrypt_token(cred.api_key)
+            except Exception:
+                # A key that will not decrypt is a broken credential, not a
+                # reason to silently fall back to the platform key and bill
+                # this workspace for spend it thought was on its own account.
+                log.warning("Could not decrypt model credential %s", cred.id)
+                raise llm_service.LLMError(
+                    f"The stored {provider} key could not be decrypted — re-enter it in Settings"
+                )
+        return WorkspaceCredential(
+            provider=cred.provider,
+            api_key=key,
+            base_url=cred.base_url,
+            price_overrides=cred.price_overrides or {},
+        )
+
     q = db.query(Subscription)
     sub = (q.filter(Subscription.org_id == org_id).first() if org_id
            else q.filter(Subscription.user_id == user_id, Subscription.org_id.is_(None)).first())
     if not sub or not sub.byo_llm_key:
-        return None, None
+        return WorkspaceCredential()
     try:
-        return sub.byo_llm_provider, decrypt_token(sub.byo_llm_key)
+        return WorkspaceCredential(provider=sub.byo_llm_provider,
+                                   api_key=decrypt_token(sub.byo_llm_key))
     except Exception:
         log.warning("Could not decrypt BYO LLM key for subscription %s", getattr(sub, "id", None))
-        return None, None
+        return WorkspaceCredential()
+
+
+def byo_llm(db: Session, user_id, org_id) -> tuple[str | None, str | None]:
+    """Back-compat shim for callers that only need (provider, key)."""
+    cred = workspace_credential(db, user_id, org_id)
+    return cred.provider, cred.api_key
 
 
 def build_system_prompt(agent: Agent | None, project: dict, *, role_intro: str,
@@ -97,12 +168,15 @@ def call_llm(
 ) -> llm_service.LLMResult:
     """One metered model call. Every token this platform spends flows through here."""
     user_id, org_id = run_owner(db, run_id)
-    provider, key = byo_llm(db, user_id, org_id)
     model = (agent.llm_model if agent and agent.llm_model else llm_service.DEFAULT_MODEL)
+    # Resolved per model, not per workspace: an agent set to a local Ollama and
+    # one set to Claude are two different credentials in the same workspace.
+    cred = workspace_credential(db, user_id, org_id, model)
 
     result = llm_service.complete(
         system=system, user=user, model=model, max_tokens=max_tokens,
-        tool=tool, byo_provider=provider, byo_key=key,
+        tool=tool, byo_provider=cred.provider, byo_key=cred.api_key,
+        byo_base_url=cred.base_url, price_overrides=cred.price_overrides,
     )
 
     metering_service.record_llm_call(
@@ -110,7 +184,7 @@ def call_llm(
         model=result.model, provider=result.provider,
         input_tokens=result.input_tokens, output_tokens=result.output_tokens,
         cost_millicents=result.cost_millicents,
-        billable=key is None,          # BYO-key spend is theirs, not ours
+        billable=not cred.is_byo,      # BYO spend is theirs, not ours
     )
     return result
 

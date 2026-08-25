@@ -19,6 +19,7 @@ from app.models.insight import ReviewFinding, RunFeedback, Deployment, SourceRea
 from app.models.sprint import SprintPlan, TicketEstimate
 
 # Phase 12 — the collaboration layer
+from app.models.integration import ModelCredential
 from app.models.workspace import (
     Channel, ChannelMember, Message, MessageReaction, UserPresence,
 )
@@ -36,4 +37,5 @@ __all__ = [
     "ReviewFinding", "RunFeedback", "Deployment", "SourceRead",
     "SprintPlan", "TicketEstimate",
     "Channel", "ChannelMember", "Message", "MessageReaction", "UserPresence",
+    "ModelCredential",
 ]

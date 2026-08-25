@@ -56,12 +56,29 @@ class TestCostAttribution:
         assert llm_service.provider_for_model(model) == expected
 
     def test_byo_key_wins_over_platform_key(self):
-        provider, key, is_byo = llm_service.resolve_credentials("openai", "sk-customer", "claude-opus-5")
+        provider, key, is_byo, _url = llm_service.resolve_credentials(
+            "openai", "sk-customer", "claude-opus-5")
         assert (provider, key, is_byo) == ("openai", "sk-customer", True)
 
     def test_platform_key_used_when_no_byo(self):
-        _, _, is_byo = llm_service.resolve_credentials(None, None, "claude-opus-5")
+        _, _, is_byo, _url = llm_service.resolve_credentials(None, None, "claude-opus-5")
         assert is_byo is False
+
+    def test_a_keyless_provider_is_still_the_workspace_own(self):
+        # A local Ollama has no credential, but it is the customer's hardware.
+        # Billing it as platform spend would charge them for their own GPUs.
+        _p, key, is_byo, _url = llm_service.resolve_credentials("ollama", None, "llama3.3")
+        assert key == "" and is_byo is True
+
+    def test_credential_carries_the_endpoint(self):
+        # Fifteen vendors share one client; the base URL is what separates them.
+        _p, _k, _b, url = llm_service.resolve_credentials("groq", "gsk_x", "llama-3.3-70b-versatile")
+        assert url == "https://api.groq.com/openai/v1"
+
+    def test_a_stored_base_url_beats_the_catalogue_default(self):
+        _p, _k, _b, url = llm_service.resolve_credentials(
+            "openai", "sk-x", "gpt-5", byo_base_url="https://gateway.internal/v1/")
+        assert url == "https://gateway.internal/v1"
 
 
 # ═══ Plan catalogue ═══════════════════════════════════════════════════════════
@@ -1081,3 +1098,213 @@ class TestConcurrencyDecisionShape:
         refused = ConcurrencyDecision(admitted=False, queued=False, reason="queue full")
         assert queued.reason is None
         assert refused.reason is not None and refused.queued is False
+
+
+# ═══ Model provider catalogue ═════════════════════════════════════════════════
+#
+# A registry's failure mode is a typo: a wrong wire format sends the call to the
+# wrong client, a missing base URL 500s at run time, a duplicate key silently
+# shadows a provider. None of those have a UI symptom until someone's run fails.
+
+class TestProviderCatalogue:
+    def test_every_provider_key_is_unique(self):
+        from app.services.llm_providers import PROVIDERS
+        keys = [p["key"] for p in PROVIDERS]
+        assert len(keys) == len(set(keys))
+
+    def test_every_provider_declares_a_known_wire(self):
+        from app.services.llm_providers import PROVIDERS
+        assert {p["wire"] for p in PROVIDERS} <= {"anthropic", "openai", "google", "ollama"}
+
+    def test_every_wire_has_a_client_in_llm_service(self):
+        # The dispatch in complete() is a chain of elifs; a wire with no branch
+        # raises only when someone finally selects that provider.
+        from app.services import llm_service
+        from app.services.llm_providers import PROVIDERS
+        for wire in {p["wire"] for p in PROVIDERS}:
+            assert hasattr(llm_service, f"_{wire}_complete"), f"no client for wire '{wire}'"
+
+    def test_every_provider_has_an_endpoint_or_demands_one(self):
+        from app.services import llm_providers as lp
+        for p in lp.PROVIDERS:
+            has_default = bool(p.get("base_url"))
+            demands_one = lp.requires_base_url(p["key"])
+            assert has_default or demands_one, f"{p['key']} can never be called"
+
+    def test_every_provider_belongs_to_a_named_family(self):
+        from app.services.llm_providers import FAMILIES, PROVIDERS
+        for p in PROVIDERS:
+            assert p["family"] in FAMILIES
+
+    def test_catalog_never_loses_a_provider(self):
+        from app.services.llm_providers import PROVIDERS, catalog
+        listed = sum(len(g["providers"]) for g in catalog())
+        assert listed == len(PROVIDERS)
+
+    def test_self_hosted_providers_do_not_demand_a_key(self):
+        # Ollama and LM Studio run without auth; requiring a key would make the
+        # air-gapped path unusable.
+        from app.services import llm_providers as lp
+        assert lp.requires_key("ollama") is False
+        assert lp.requires_key("lmstudio") is False
+
+    def test_azure_demands_a_base_url(self):
+        # Azure's endpoint is per-resource and per-deployment. Defaulting it
+        # would send every Azure call to a host that does not exist.
+        from app.services import llm_providers as lp
+        assert lp.requires_base_url("azure") is True
+
+    def test_unknown_provider_falls_back_to_the_openai_wire(self):
+        # A provider added to the DB but not yet to the registry is far more
+        # likely to be another OpenAI-compatible endpoint than anything else.
+        from app.services.llm_providers import wire_for
+        assert wire_for("some-new-vendor") == "openai"
+
+
+class TestModelRouting:
+    @pytest.mark.parametrize("model,provider", [
+        ("claude-opus-5", "anthropic"),
+        ("gpt-5", "openai"),
+        ("gemini-2.5-pro", "google"),
+        ("grok-4", "xai"),
+        ("deepseek-reasoner", "deepseek"),
+        ("codestral-latest", "mistral"),
+        ("sonar-pro", "perplexity"),
+        ("anthropic/claude-sonnet-4.5", "openrouter"),
+    ])
+    def test_model_ids_route_to_the_right_vendor(self, model, provider):
+        from app.services.llm_service import provider_for_model
+        assert provider_for_model(model) == provider
+
+
+class TestPriceOverrides:
+    def test_a_workspace_rate_beats_the_published_table(self):
+        # Anyone on committed spend has a truer number than any public list.
+        from app.services.llm_service import cost_millicents
+        override = {"claude-opus-5": {"input": 100, "output": 200}}
+        assert cost_millicents("claude-opus-5", 1_000_000, 0, override) == 100_000
+
+    def test_an_override_for_another_model_is_ignored(self):
+        from app.services.llm_service import cost_millicents
+        plain = cost_millicents("claude-opus-5", 1_000_000, 0)
+        with_other = cost_millicents("claude-opus-5", 1_000_000, 0, {"gpt-5": {"input": 1, "output": 1}})
+        assert plain == with_other
+
+    def test_a_malformed_override_falls_back_rather_than_crashing(self):
+        # A half-filled override in the DB must not take down cost attribution.
+        from app.services.llm_service import cost_millicents
+        assert cost_millicents("claude-opus-5", 1000, 100, {"claude-opus-5": {"input": 5}}) > 0
+
+    def test_unpriced_models_are_reported_as_unpriced(self):
+        from app.services.llm_service import has_published_price
+        assert has_published_price("claude-opus-5") is True
+        assert has_published_price("some-vendor/some-model") is False
+
+
+class TestGeminiSchemaFilter:
+    """Gemini 400s on JSON Schema keys the other providers ignore. The agent
+    tool schemas are written once and shared, so they are filtered on the way
+    out rather than duplicated per vendor."""
+    def test_unsupported_keys_are_stripped(self):
+        from app.services.llm_service import _gemini_schema
+        out = _gemini_schema({"type": "object", "additionalProperties": False, "title": "X"})
+        assert "additionalProperties" not in out and "title" not in out
+
+    def test_nested_properties_are_filtered_too(self):
+        from app.services.llm_service import _gemini_schema
+        out = _gemini_schema({"properties": {"a": {"type": "string", "default": "z"}}})
+        assert "default" not in out["properties"]["a"]
+
+    def test_array_items_are_filtered(self):
+        from app.services.llm_service import _gemini_schema
+        out = _gemini_schema({"type": "array", "items": {"type": "string", "const": "x"}})
+        assert "const" not in out["items"]
+
+    def test_the_meaningful_schema_survives(self):
+        from app.services.llm_service import _gemini_schema
+        out = _gemini_schema({"type": "object", "required": ["a"],
+                              "properties": {"a": {"type": "string", "description": "keep"}}})
+        assert out["required"] == ["a"]
+        assert out["properties"]["a"]["description"] == "keep"
+
+
+# ═══ Plugin catalogue ═════════════════════════════════════════════════════════
+
+class TestPluginCatalogue:
+    def test_every_plugin_key_is_unique(self):
+        from app.services.plugins import PLUGINS
+        keys = [p["key"] for p in PLUGINS]
+        assert len(keys) == len(set(keys))
+
+    def test_every_plugin_declares_an_honest_depth(self):
+        # The depth is shown on the card. A catalogue of forty logos is worth
+        # nothing if thirty-five only store a token and do not say so.
+        from app.services.plugins import NATIVE, NOTIFY, PLUGINS, VERIFIED
+        assert {p["depth"] for p in PLUGINS} <= {NATIVE, NOTIFY, VERIFIED}
+
+    def test_the_natively_driven_plugins_are_exactly_the_ones_with_services(self):
+        # If this list grows, a real service module has to grow with it.
+        from app.services.plugins import NATIVE, PLUGINS
+        native = {p["key"] for p in PLUGINS if p["depth"] == NATIVE}
+        assert native == {"github", "gitlab", "jira", "linear"}
+
+    def test_every_plugin_belongs_to_a_named_category(self):
+        from app.services.plugins import CATEGORIES, PLUGINS
+        for p in PLUGINS:
+            assert p["category"] in CATEGORIES
+
+    def test_every_plugin_has_a_verification_recipe(self):
+        # A plugin with no check is a token nobody ever proved works.
+        from app.services.plugins import PLUGINS
+        for p in PLUGINS:
+            assert p.get("verify"), f"{p['key']} has no verification recipe"
+
+    def test_url_recipes_are_only_used_where_a_url_is_collected(self):
+        # "{base}" with no URL field is a KeyError at connect time.
+        from app.services import plugins as pl
+        for p in pl.PLUGINS:
+            if "{base}" in (p.get("verify", {}).get("url") or ""):
+                assert pl.requires_url(p["key"]), f"{p['key']} interpolates a URL it never asks for"
+
+    def test_catalog_never_loses_a_plugin(self):
+        from app.services.plugins import PLUGINS, catalog
+        listed = sum(len(g["plugins"]) for g in catalog())
+        assert listed == len(PLUGINS)
+
+    def test_catalog_never_leaks_verification_recipes(self):
+        # They are internal, and publishing them invites probing vendors through us.
+        from app.services.plugins import catalog
+        for group in catalog():
+            for plugin in group["plugins"]:
+                assert "verify" not in plugin
+
+    def test_counts_are_computed_not_claimed(self):
+        from app.services.plugins import PLUGINS, counts
+        c = counts()
+        assert c["total"] == len(PLUGINS)
+        assert c["native"] + c["notify"] + c["verified"] == c["total"]
+
+    def test_webhook_plugins_ask_for_a_url_not_a_token(self):
+        from app.services import plugins as pl
+        for p in pl.PLUGINS:
+            if p["auth"] == pl.AUTH_WEBHOOK:
+                assert pl.requires_url(p["key"]) and not pl.requires_token(p["key"])
+
+
+class TestPluginVerificationSafety:
+    def test_a_verification_failure_is_a_status_not_an_exception(self):
+        # Called from inside the connect handler; raising would 500 the request
+        # that was about to store a perfectly recoverable bad token.
+        from app.services import plugin_verify
+        result = plugin_verify.verify("definitely-not-a-plugin", token="x")
+        assert result.ok is False and "Unknown plugin" in result.detail
+
+    def test_name_extraction_survives_a_vendor_changing_its_response(self):
+        from app.services.plugin_verify import _dig
+        assert _dig({"data": {"viewer": {"name": "Priya"}}}, "data.viewer.name") == "Priya"
+        assert _dig({"data": {}}, "data.viewer.name") is None
+        assert _dig(None, "a.b") is None
+
+    def test_name_extraction_walks_into_a_list(self):
+        from app.services.plugin_verify import _dig
+        assert _dig({"items": [{"name": "first"}]}, "items.name") == "first"

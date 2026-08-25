@@ -5,7 +5,7 @@ import {
   FolderOpen, Play, ClipboardList, Settings, LogOut,
   Menu, X, Users, Building2,
   BarChart3, CreditCard, Shield, Store, Terminal, FileCheck,
-  MessagesSquare, Activity,
+  MessagesSquare, Activity, Plug, KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -29,6 +29,7 @@ const NAV = [
     group: 'Build',
     items: [
       { label: 'Connections', to: '/connections', icon: Link2 },
+      { label: 'Plugins',     to: '/plugins',     icon: Plug },
       { label: 'Skills',      to: '/skills',      icon: BookOpen },
       { label: 'Agents',      to: '/agents',      icon: Bot },
       { label: 'Pods',        to: '/pods',        icon: Layers },
@@ -56,6 +57,9 @@ const NAV = [
     items: [
       { label: 'Policies',    to: '/policies',    icon: Shield },
       { label: 'Developer',   to: '/developer',   icon: Terminal },
+      // Model keys live under Govern rather than Build: connecting a
+      // provider is workspace-wide spending authority, not a build step.
+      { label: 'Providers',   to: '/providers',   icon: KeyRound },
       { label: 'Billing',     to: '/billing',     icon: CreditCard },
       { label: 'Settings',    to: '/settings',    icon: Settings },
     ],

@@ -5,7 +5,7 @@ from app.config import settings
 from app.routers import auth, connections, skills, agents, pods, projects, tickets, runs, audit
 from app.routers import dashboard, settings as settings_router
 from app.routers import billing, notifications, insights, governance, catalog, memory, public_api, mcp, sprint
-from app.routers import workspace
+from app.routers import workspace, integrations
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
 
@@ -47,6 +47,10 @@ fastapi_app.include_router(sprint.router,         prefix="",               tags=
 # Mounted at the root because its paths are already namespaced under
 # /workspace, and a /workspace prefix here would make them /workspace/workspace.
 fastapi_app.include_router(workspace.router,      prefix="",               tags=["workspace"])
+# Model providers and plugins. Root-mounted: the paths are already namespaced
+# under /providers and /plugins, and the catalogue endpoints are read by the
+# settings UI on every load.
+fastapi_app.include_router(integrations.router,   prefix="",               tags=["integrations"])
 # Public, API-key authenticated surface for CI and customer automation
 fastapi_app.include_router(public_api.router,     prefix="/v1",            tags=["public-api"])
 # MCP lives at the root, not under /v1: an MCP client config takes a URL and

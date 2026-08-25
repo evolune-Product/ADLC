@@ -14,8 +14,22 @@ serves the tokens.
 
 Providers
 ---------
-anthropic  (default)  native SDK
-openai / azure / ollama / openai-compatible  via HTTP (no extra dependency)
+The catalogue lives in `llm_providers.py` — roughly twenty vendors, all
+bring-your-own-key. This module implements one client per *wire format* rather
+than one per vendor, because almost every provider speaks one of four shapes:
+
+    anthropic   native SDK
+    openai      /chat/completions — most of the catalogue, Azure included
+    google      :generateContent — Gemini
+    ollama      /api/generate — local models
+
+Adding a vendor that speaks one of those is a dict literal in `llm_providers`,
+not code here.
+
+This platform does not resell inference. There is a platform-key fallback for
+single-tenant and self-hosted installs, but the product path is a workspace
+bringing its own key: their vendor contract, their data-processing terms, and
+no model spend on our books.
 
 Anthropic note: `temperature` / `top_p` / `top_k` are rejected by current Claude
 models, so sampling params are only forwarded to OpenAI-shaped providers.
@@ -30,6 +44,7 @@ from typing import Any
 import httpx
 
 from app.config import settings
+from app.services import llm_providers
 
 log = logging.getLogger(__name__)
 
@@ -59,12 +74,37 @@ _FALLBACK_PRICE = (300, 1500)
 
 
 def provider_for_model(model: str) -> str:
+    """
+    Best guess at the vendor from a bare model id.
+
+    Only a fallback. When a workspace has stored a credential, the provider is
+    read off that row instead — an id like `qwen2.5-coder` is served by Groq,
+    Together, Fireworks, DeepInfra, vLLM and a local Ollama alike, and guessing
+    from the string cannot tell them apart. This exists so a model named with
+    no credential configured still routes somewhere sensible.
+    """
     m = (model or "").lower()
     if m.startswith("claude"):
         return "anthropic"
-    if m.startswith(("gpt", "o1", "o3", "o4")):
+    if m.startswith(("gpt", "o1", "o3", "o4", "chatgpt")):
         return "openai"
-    if m.startswith(("llama", "qwen", "mistral", "deepseek", "phi", "gemma")):
+    if m.startswith("gemini"):
+        return "google"
+    if m.startswith("grok"):
+        return "xai"
+    if m.startswith(("mistral", "codestral", "ministral", "magistral")):
+        return "mistral"
+    if m.startswith("deepseek"):
+        return "deepseek"
+    if m.startswith("command"):
+        return "cohere"
+    if m.startswith("sonar"):
+        return "perplexity"
+    # A vendor-prefixed id ("anthropic/claude-…", "meta-llama/…") is the
+    # OpenRouter and Together convention.
+    if "/" in m:
+        return "openrouter"
+    if m.startswith(("llama", "qwen", "phi", "gemma", "starcoder", "codellama")):
         return "ollama"
     return "anthropic"
 
@@ -78,10 +118,33 @@ def price_for(model: str) -> tuple[int, int]:
     return _FALLBACK_PRICE
 
 
-def cost_millicents(model: str, input_tokens: int, output_tokens: int) -> int:
-    """Integer arithmetic only — no float drift across millions of rows."""
-    in_c, out_c = price_for(model)
+def cost_millicents(model: str, input_tokens: int, output_tokens: int,
+                    overrides: dict | None = None) -> int:
+    """
+    Integer arithmetic only — no float drift across millions of rows.
+
+    `overrides` is the workspace's own per-model rate in cents per million
+    tokens, `{"gpt-5": {"input": 300, "output": 1500}}`. It wins over the
+    published table because anyone on a committed-spend or negotiated contract
+    has a truer number than any public price list, and because this repo has
+    published prices for only a minority of the catalogue — inventing the rest
+    would make every cost figure in the product untrustworthy.
+    """
+    rate = (overrides or {}).get(model)
+    if isinstance(rate, dict) and "input" in rate and "output" in rate:
+        in_c, out_c = int(rate["input"]), int(rate["output"])
+    else:
+        in_c, out_c = price_for(model)
     return round((input_tokens * in_c + output_tokens * out_c) / 1000)
+
+
+def has_published_price(model: str) -> bool:
+    """Whether the cost figure for this model is a real published rate or the
+    generic fallback. The UI uses this to prompt for a rate override rather
+    than quietly showing an invented number as if it were measured."""
+    if model in PRICE_CENTS_PER_MTOK:
+        return True
+    return any(model and model.startswith(k) for k in PRICE_CENTS_PER_MTOK)
 
 
 @dataclass
@@ -108,22 +171,39 @@ class LLMError(RuntimeError):
 
 # ── Credentials ───────────────────────────────────────────────────────────────
 
-def resolve_credentials(byo_provider: str | None, byo_key: str | None, model: str) -> tuple[str, str, bool]:
+def resolve_credentials(byo_provider: str | None, byo_key: str | None, model: str,
+                        byo_base_url: str | None = None) -> tuple[str, str, bool, str | None]:
     """
-    Returns (provider, api_key, is_byo).
+    Returns (provider, api_key, is_byo, base_url).
 
-    A per-org BYO key wins over the platform key — that is the enterprise path
-    (their spend, their vendor contract, their data-processing agreement) and it
-    also removes LLM cost from our COGS entirely.
+    A workspace's own credential always wins over the platform key. That is the
+    product path, not an enterprise upsell: their spend, their vendor contract,
+    their data-processing agreement, and no inference cost on our books.
+
+    Some providers legitimately have no key at all — a local Ollama, an
+    unauthenticated internal gateway — so an empty key with a provider named is
+    a valid, deliberate configuration rather than a missing one. `is_byo` keys
+    off the provider being explicitly chosen, not off the secret being present,
+    which is what keeps a self-hosted workspace from being billed as if it had
+    used the platform key.
     """
-    if byo_key:
-        return (byo_provider or provider_for_model(model), byo_key, True)
+    if byo_provider or byo_key:
+        provider = byo_provider or provider_for_model(model)
+        return (
+            provider,
+            byo_key or "",
+            True,
+            llm_providers.base_url_for(provider, byo_base_url),
+        )
+
+    # No workspace credential. Fall back to a platform key if this deployment
+    # has one configured — the single-tenant and self-hosted case.
     provider = provider_for_model(model)
     if provider == "anthropic":
-        return provider, settings.anthropic_api_key, False
+        return provider, settings.anthropic_api_key, False, llm_providers.base_url_for(provider)
     if provider == "openai":
-        return provider, settings.openai_api_key, False
-    return provider, "", False
+        return provider, settings.openai_api_key, False, llm_providers.base_url_for(provider)
+    return provider, "", False, llm_providers.base_url_for(provider)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -138,25 +218,34 @@ def complete(
     force_tool: bool = True,
     byo_provider: str | None = None,
     byo_key: str | None = None,
+    byo_base_url: str | None = None,
+    price_overrides: dict | None = None,
     timeout: float = 300.0,
 ) -> LLMResult:
     """
     One call, any provider. When `tool` is given the model is asked to answer
     through that tool schema and `result.tool_input` carries the parsed object.
     """
-    provider, api_key, _ = resolve_credentials(byo_provider, byo_key, model)
+    provider, api_key, _, base_url = resolve_credentials(
+        byo_provider, byo_key, model, byo_base_url)
 
-    if provider == "anthropic":
+    # Dispatch on wire format, not on vendor. Twenty providers, four clients.
+    wire = llm_providers.wire_for(provider)
+    if wire == "anthropic":
         result = _anthropic_complete(system, user, model, max_tokens, tool, force_tool, api_key, timeout)
-    elif provider in ("openai", "azure", "openai_compatible"):
-        result = _openai_complete(system, user, model, max_tokens, tool, force_tool, api_key, provider, timeout)
-    elif provider == "ollama":
-        result = _ollama_complete(system, user, model, max_tokens, tool, timeout)
+    elif wire == "google":
+        result = _google_complete(system, user, model, max_tokens, tool, api_key, base_url, timeout)
+    elif wire == "ollama":
+        result = _ollama_complete(system, user, model, max_tokens, tool, timeout, base_url)
+    elif wire == "openai":
+        result = _openai_complete(system, user, model, max_tokens, tool, force_tool,
+                                  api_key, provider, timeout, base_url)
     else:
-        raise LLMError(f"Unknown LLM provider: {provider}")
+        raise LLMError(f"Unknown LLM wire format '{wire}' for provider '{provider}'")
 
     result.provider = provider
-    result.cost_millicents = cost_millicents(result.model, result.input_tokens, result.output_tokens)
+    result.cost_millicents = cost_millicents(
+        result.model, result.input_tokens, result.output_tokens, price_overrides)
     return result
 
 
@@ -203,8 +292,16 @@ def _anthropic_complete(system, user, model, max_tokens, tool, force_tool, api_k
 
 # ── OpenAI-compatible (OpenAI, Azure OpenAI, vLLM, LiteLLM, …) ────────────────
 
-def _openai_complete(system, user, model, max_tokens, tool, force_tool, api_key, provider, timeout) -> LLMResult:
-    base_url = settings.openai_base_url.rstrip("/")
+def _openai_complete(system, user, model, max_tokens, tool, force_tool, api_key,
+                     provider, timeout, base_url=None) -> LLMResult:
+    # The base URL is what makes one client serve fifteen vendors. It comes
+    # from the stored credential when the customer set one (Azure, vLLM, an
+    # internal gateway), else the catalogue's default for that provider, else
+    # the legacy global setting.
+    base_url = (base_url or llm_providers.base_url_for(provider)
+                or settings.openai_base_url).rstrip("/")
+    if not base_url:
+        raise LLMError(f"No endpoint configured for provider '{provider}' — set a base URL on the credential")
     headers = {"Content-Type": "application/json"}
     if provider == "azure":
         headers["api-key"] = api_key
@@ -261,9 +358,115 @@ def _openai_complete(system, user, model, max_tokens, tool, force_tool, api_key,
     )
 
 
+
+# ── Google Gemini ─────────────────────────────────────────────────────────────
+
+def _google_complete(system, user, model, max_tokens, tool, api_key, base_url, timeout) -> LLMResult:
+    """
+    Gemini's own :generateContent shape.
+
+    Three things differ from the OpenAI wire and each one silently breaks the
+    call if assumed away: the key travels in an `x-goog-api-key` header rather
+    than a bearer token, the system prompt is a distinct `systemInstruction`
+    field rather than a message with role "system", and tool calls come back as
+    a `functionCall` part inside the candidate's content rather than as a
+    `tool_calls` array on the message.
+    """
+    if not api_key:
+        raise LLMError("No Google API key configured for this workspace")
+
+    root = (base_url or llm_providers.base_url_for("google")).rstrip("/")
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+    body: dict[str, Any] = {
+        "contents": [{"role": "user", "parts": [{"text": user}]}],
+        "generationConfig": {"maxOutputTokens": max_tokens},
+    }
+    if system:
+        body["systemInstruction"] = {"parts": [{"text": system}]}
+    if tool:
+        body["tools"] = [{
+            "functionDeclarations": [{
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": _gemini_schema(tool["input_schema"]),
+            }]
+        }]
+
+    with httpx.Client(timeout=timeout) as client:
+        r = client.post(f"{root}/models/{model}:generateContent", headers=headers, json=body)
+    if r.status_code >= 400:
+        raise LLMError(f"google error {r.status_code}: {r.text[:400]}")
+
+    data = r.json()
+    candidate = (data.get("candidates") or [{}])[0]
+    parts = (candidate.get("content") or {}).get("parts") or []
+
+    text, tool_input, tool_name = "", None, None
+    for part in parts:
+        if "text" in part:
+            text += part["text"]
+        fn = part.get("functionCall")
+        if fn:
+            tool_name = fn.get("name")
+            tool_input = fn.get("args") or {}
+
+    # A model asked for a tool but answered in prose happens often enough on
+    # non-Anthropic providers to be worth recovering from rather than failing.
+    if tool and tool_input is None and text:
+        tool_input = _extract_json(text)
+        tool_name = tool["name"] if tool_input else None
+
+    usage = data.get("usageMetadata", {})
+    return LLMResult(
+        text=text,
+        tool_input=tool_input,
+        tool_name=tool_name,
+        model=model,
+        input_tokens=usage.get("promptTokenCount", 0),
+        output_tokens=usage.get("candidatesTokenCount", 0),
+        stop_reason=candidate.get("finishReason"),
+        raw=data,
+    )
+
+
+# Keys JSON Schema carries that Gemini's function-declaration schema rejects
+# outright with a 400 rather than ignoring.
+_GEMINI_UNSUPPORTED = {
+    "additionalProperties", "$schema", "$id", "definitions", "$defs",
+    "default", "examples", "title", "const",
+}
+
+
+def _gemini_schema(schema: dict) -> dict:
+    """
+    Strip the JSON Schema keys Gemini refuses.
+
+    The agent tool schemas are written once and handed to every provider.
+    Anthropic and OpenAI accept the full vocabulary; Gemini 400s on several
+    common keys, so rather than maintain a second copy of every tool definition
+    the schema is filtered on the way out.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    out = {}
+    for k, v in schema.items():
+        if k in _GEMINI_UNSUPPORTED:
+            continue
+        if k == "properties" and isinstance(v, dict):
+            out[k] = {pk: _gemini_schema(pv) for pk, pv in v.items()}
+        elif k == "items":
+            out[k] = _gemini_schema(v)
+        elif isinstance(v, dict):
+            out[k] = _gemini_schema(v)
+        else:
+            out[k] = v
+    return out
+
+
 # ── Ollama (self-hosted / air-gapped) ─────────────────────────────────────────
 
-def _ollama_complete(system, user, model, max_tokens, tool, timeout) -> LLMResult:
+def _ollama_complete(system, user, model, max_tokens, tool, timeout, base_url=None) -> LLMResult:
     prompt = user
     if tool:
         prompt = (
@@ -278,7 +481,8 @@ def _ollama_complete(system, user, model, max_tokens, tool, timeout) -> LLMResul
         "options": {"num_predict": max_tokens},
     }
     with httpx.Client(timeout=timeout) as client:
-        r = client.post(f"{settings.ollama_base_url.rstrip('/')}/api/generate", json=body)
+        host = (base_url or settings.ollama_base_url).rstrip("/")
+        r = client.post(f"{host}/api/generate", json=body)
     if r.status_code >= 400:
         raise LLMError(f"Ollama error {r.status_code}: {r.text[:400]}")
 

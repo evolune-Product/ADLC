@@ -1047,11 +1047,132 @@ Four blocks, in the order a manager reads them:
 - **Empty stays empty.** With no `RunFeedback` rows the trust block renders blank
   and says so. An assumed satisfaction score is worse than an honest gap.
 
+## Model Providers and Plugins (bring your own everything)
+
+Two registries and the credentials that go with them. Both are declarative:
+adding a vendor is a dict literal, not code.
+
+```
+app/services/llm_providers.py   ← 20 model vendors, all BYO-key
+app/services/plugins.py         ← 41 connectors across 9 categories
+app/services/plugin_verify.py   ← one real authenticated call per plugin
+app/models/integration.py       ← ModelCredential — many keys per workspace
+app/routers/integrations.py     ← /providers · /plugins
+migrations/versions/e5f6a7b8c9d0_model_credentials.py
+frontend/src/pages/settings/ProvidersPage.tsx     → /providers
+frontend/src/pages/connections/PluginsPage.tsx    → /plugins
+frontend/src/hooks/useIntegrations.ts · types/integrations.ts
+```
+
+### The position: this platform does not resell inference
+
+There is no bundled model quota and no markup on tokens. A workspace connects a
+vendor it already pays; the tokens are billed by that vendor on the customer's
+own contract under their own data-processing terms. That is the answer to the
+first question every security review asks, and it keeps inference off this
+company's COGS entirely. `/providers` says so on the page, in those words.
+
+A platform-key fallback still exists for single-tenant and self-hosted installs
+(`settings.anthropic_api_key`), but it is not the product path and no
+customer-facing copy implies otherwise.
+
+### One workspace, many keys
+
+`Subscription.byo_llm_provider` / `byo_llm_key` held exactly **one** key for a
+whole workspace, which forces a choice the product should not force — teams run
+Claude for the Dev agent and a local Ollama for QA. `ModelCredential` is one row
+per provider; `_common.workspace_credential(db, user, org, model)` resolves per
+model and falls back to the old single key so no existing workspace breaks.
+
+### Wire formats, not vendors
+
+Twenty providers, four clients. `llm_providers` records a `wire` per provider
+and `llm_service` dispatches on that:
+
+| wire | serves |
+|---|---|
+| `anthropic` | Claude, native SDK |
+| `openai` | most of the catalogue — Azure, Groq, DeepSeek, xAI, Together, Fireworks, OpenRouter, Mistral, Perplexity, Cerebras, DeepInfra, Nebius, Cohere, vLLM, LM Studio |
+| `google` | Gemini's `:generateContent` |
+| `ollama` | local models |
+
+Things that will bite whoever touches this next:
+
+- **`suggested_models` is not a closed set.** Model ids churn faster than any
+  hardcoded list survives, so the API accepts any string. An allow-list would
+  reject a model the vendor shipped last week — a worse failure than an unknown
+  id reaching the provider and coming back with a clear error.
+- **The base URL is what makes one client serve fifteen vendors.** It comes from
+  the stored credential first (Azure, vLLM, an internal gateway), then the
+  catalogue default. `settings.openai_base_url` is now only a last resort.
+- **Gemini rejects JSON Schema keys the others ignore** — `additionalProperties`,
+  `title`, `default`, `const` and friends produce a 400, not a shrug. The agent
+  tool schemas are written once and shared, so `_gemini_schema` filters them on
+  the way out rather than maintaining a second copy per vendor.
+- **`resolve_credentials` returns a 4-tuple now** (provider, key, is_byo,
+  base_url). `is_byo` keys off the provider being chosen, **not** off a secret
+  being present — a keyless local Ollama is still the customer's own hardware
+  and must not be billed as platform spend.
+- **Cost overrides beat the published table.** This repo has published prices
+  for a minority of the catalogue. Rather than invent the rest,
+  `ModelCredential.price_overrides` lets a workspace enter its own rate, which
+  is the truer number for anyone on committed spend anyway.
+  `has_published_price()` is what the UI uses to prompt for one instead of
+  quietly showing an invented figure as if it were measured.
+- **`/providers/credentials/{p}/test` makes a real two-token completion**, not a
+  ping to a `/models` list. Several vendors happily list models for a key with
+  no inference quota, no billing attached, or the wrong project scope — and the
+  failure then surfaces mid-run instead of in the settings page.
+
+### Plugins: depth is declared, not implied
+
+A catalogue of forty logos is worth nothing if thirty-five only store a token.
+Every entry declares a `depth`, the API returns it, and the card shows it:
+
+| depth | meaning | count |
+|---|---|---|
+| `native` | the pipeline drives it — reads issues, opens PRs, comments back | 4 |
+| `notify` | receives approvals, failures and deploys | 7 |
+| `verified` | credential genuinely checked against the vendor and available to agents; no bespoke pipeline behaviour yet | 30 |
+
+`verified` is not a euphemism for "we did nothing" — `plugin_verify` makes a
+real authenticated request to the vendor's own auth endpoint, so a wrong token
+fails in the connect form rather than at 3am inside a deploy. There is a test
+asserting the `native` set is exactly `{github, gitlab, jira, linear}`, so
+growing that list forces a real service module to grow with it.
+
+Rules worth keeping:
+
+- **SSRF is keyed off deployment mode, not blanket-blocked.** Several plugins
+  are self-hostable (GitLab, Gitea, Mattermost, SonarQube, Grafana, YouTrack),
+  so the customer supplies a host and the server then calls it. In `cloud` mode
+  `reader_service._assert_public_url` refuses private, loopback, link-local and
+  reserved addresses **by resolved IP** — a tenant admin must not be able to
+  make shared infrastructure fetch `169.254.169.254`. In `self_hosted` mode the
+  guard is off, because the internal host is the entire point. Redirects are
+  never followed on a verification call.
+- **`requires_url` is driven by the presence of a URL field, not by the auth
+  constant.** Jira and Confluence authenticate with `basic` *and* need a site
+  URL; keying off the auth constant let a Jira connect pass validation with no
+  URL and then fail deep in the verifier on an un-substituted `{base}`.
+- **A failed verification still saves the connection**, with the vendor's reason
+  attached and `status="error"`. Someone who pasted a token missing one scope
+  should fix the scope and re-verify, not retype the whole form.
+- **Webhook URLs are encrypted like tokens.** Anyone holding a Slack incoming
+  webhook can post into the channel, so it does not sit in the plaintext
+  `workspace_url` column.
+- **An omitted key or base URL on an update means "keep the stored one."** The
+  UI cannot show a secret back, so it cannot resend one; treating a blank field
+  as a deletion would wipe a working key on an unrelated edit. Both were
+  genuine bugs caught by the end-to-end script, not hypotheticals.
+- **`catalog()` never returns the `verify` recipes.** They are internal, and
+  publishing them invites probing vendors through us.
+
 ## What Still Isn't Built (Phase 12+)
 
 - SAML SSO and SCIM directory provisioning (OIDC SSO **is** built — see above)
 - Marketplace creator payouts (listings support pricing; no payout flow)
-- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 137 pytest unit tests)
+- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 186 pytest unit tests)
 - Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
 - MinIO skill file storage (skills still save `md_content` direct to DB)
 - Reviewer suggestion for GitLab merge requests (GitHub only today)
