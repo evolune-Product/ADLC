@@ -5,6 +5,7 @@ from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, func, Unique
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
+from app.services.org_roles import ALL_KEYS, INVITABLE_ROLES
 
 
 class Organization(Base):
@@ -23,11 +24,22 @@ class Organization(Base):
     invitations = relationship("OrgInvitation", back_populates="org", cascade="all, delete-orphan")
 
 
+# Built from the registry, not retyped — see app/services/org_roles.py for
+# why there are nine roles now (billing manager, engineering lead, reviewer,
+# auditor, client/guest) instead of the original four, and why they need two
+# independent access dimensions rather than one rank.
+_MEMBER_ROLE_LIST = ",".join(f"'{k}'" for k in ALL_KEYS)
+# Ownership moves by transfer only (see org_roles.INVITABLE_ROLES) — but a
+# member ROW can still legitimately hold "owner", it is just never assigned
+# via an invitation, so the membership table's constraint is the full set and
+# only the *invitation* table's constraint below is the narrower one.
+
+
 class OrgMember(Base):
     __tablename__ = "org_members"
     __table_args__ = (
         UniqueConstraint("org_id", "user_id"),
-        CheckConstraint("role IN ('owner','admin','member','viewer')", name="org_members_role_check"),
+        CheckConstraint(f"role IN ({_MEMBER_ROLE_LIST})", name="org_members_role_check"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -40,10 +52,17 @@ class OrgMember(Base):
     user = relationship("User")
 
 
+_INVITATION_ROLE_LIST = ",".join(f"'{k}'" for k in INVITABLE_ROLES)
+
+
 class OrgInvitation(Base):
     __tablename__ = "org_invitations"
     __table_args__ = (
-        CheckConstraint("role IN ('admin','member','viewer')", name="org_invitations_role_check"),
+        # Narrower than OrgMember's constraint: "owner" is deliberately absent
+        # from INVITABLE_ROLES, because ownership moves by transfer — a
+        # deliberate action by the *current* owner — never by a role picked
+        # in an invite form.
+        CheckConstraint(f"role IN ({_INVITATION_ROLE_LIST})", name="org_invitations_role_check"),
         CheckConstraint("status IN ('pending','accepted','expired','revoked')", name="org_invitations_status_check"),
     )
 

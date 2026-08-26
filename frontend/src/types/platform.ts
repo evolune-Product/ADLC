@@ -29,6 +29,8 @@ export interface Quota {
   period_end: string
 }
 
+export type PaymentGateway = 'stripe' | 'razorpay' | 'paypal'
+
 export interface BillingState {
   subscription: {
     plan: PlanKey
@@ -42,7 +44,12 @@ export interface BillingState {
     current_period_end: string | null
     byo_llm_provider: string | null
     byo_llm_configured: boolean
+    /** Which gateway this subscription is actually billed through right now,
+     *  or null on the free plan / before any checkout has been started. */
+    payment_provider: PaymentGateway | null
     stripe_customer_id: string | null
+    razorpay_subscription_id: string | null
+    paypal_subscription_id: string | null
   }
   quota: Quota
   usage_by_model: {
@@ -52,6 +59,10 @@ export interface BillingState {
     output_tokens: number
     cost_usd: number
   }[]
+  /** Per-gateway, not one flag — a deployment can enable any subset of the
+   *  three, and the checkout page needs to know which buttons are real. */
+  gateways_enabled: Record<PaymentGateway, boolean>
+  /** Kept for anything still reading the old single flag. */
   stripe_enabled: boolean
 }
 

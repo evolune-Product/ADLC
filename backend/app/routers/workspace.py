@@ -32,7 +32,7 @@ from app.models.user import User
 from app.models.workspace import (
     CHANNEL_KINDS, Channel, ChannelMember, Message, MessageReaction,
 )
-from app.routers._helpers import OrgContext, get_optional_org
+from app.routers._helpers import OrgContext, can_write, get_optional_org, is_domain_admin
 from app.routers.auth import get_current_user
 from app.services import workspace_bridge as bridge
 from app.services import workspace_service as ws
@@ -115,7 +115,10 @@ def _require_channel_admin(db: Session, ch: Channel, current_user: User,
     member = ws.is_member(db, ch.id, current_user.id)
     if member and member.role in ("owner", "admin"):
         return
-    if org_ctx and org_ctx.role in ("owner", "admin"):
+    # An org-wide admin — owner, admin, or an engineering lead — can moderate
+    # any channel even without a channel-level role, the same fallback every
+    # other engineering surface gives that role.
+    if org_ctx and is_domain_admin(org_ctx, "engineering"):
         return
     raise HTTPException(status_code=403, detail="Only channel admins can do that")
 
@@ -172,8 +175,8 @@ def create_channel(
 ):
     if body.kind not in CHANNEL_KINDS or body.kind == "dm":
         raise HTTPException(status_code=422, detail="kind must be channel, private, broadcast or group_dm")
-    if org_ctx and org_ctx.role == "viewer":
-        raise HTTPException(status_code=403, detail="Viewers cannot create channels")
+    if org_ctx and not can_write(org_ctx):
+        raise HTTPException(status_code=403, detail="Read-only members cannot create channels")
 
     slug = ws.slugify(body.name)
     clash = (
@@ -571,7 +574,7 @@ def delete_message(
 
     ch = _get_channel(msg.channel_id, db, current_user, org_ctx)
     is_author = msg.author_id == current_user.id
-    is_admin = bool(org_ctx and org_ctx.role in ("owner", "admin"))
+    is_admin = bool(org_ctx and is_domain_admin(org_ctx, "engineering"))
     if not (is_author or is_admin):
         raise HTTPException(status_code=403, detail="You can only delete your own messages")
 

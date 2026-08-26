@@ -1,11 +1,23 @@
 import { useState } from 'react'
-import { Check, CreditCard, Key, Zap } from 'lucide-react'
+import { Check, CreditCard, Key, Landmark, Wallet, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton'
 import {
-  useBilling, useBillingPortal, useCheckout, useClearLlmKey, usePlans, useSetLlmKey,
+  useBilling, useBillingPortal, useCancelSubscription, useCheckout, useClearLlmKey,
+  usePlans, useSetLlmKey,
 } from '@/hooks/usePlatform'
+import type { PaymentGateway } from '@/types/platform'
+
+// Icon + label per gateway. Razorpay has no lucide icon of its own, so
+// Landmark (a bank building) stands in for "the India bank-rail option" —
+// closer to what it actually is (UPI/netbanking/bank transfer) than a
+// generic card icon would be.
+const GATEWAYS: { key: PaymentGateway; label: string; icon: typeof CreditCard }[] = [
+  { key: 'stripe', label: 'Card (Stripe)', icon: CreditCard },
+  { key: 'razorpay', label: 'UPI / Razorpay', icon: Landmark },
+  { key: 'paypal', label: 'PayPal', icon: Wallet },
+]
 
 const PROVIDERS = [
   { value: 'anthropic', label: 'Anthropic (Claude)' },
@@ -23,6 +35,8 @@ export default function BillingPage() {
   const { data: plans = [] } = usePlans()
   const checkout = useCheckout()
   const portal = useBillingPortal()
+  const cancelSub = useCancelSubscription()
+  const [gateway, setGateway] = useState<PaymentGateway>('stripe')
   const setKey = useSetLlmKey()
   const clearKey = useClearLlmKey()
 
@@ -44,10 +58,23 @@ export default function BillingPage() {
         title="Plan and usage"
         subtitle="Runs are the billing unit — one ticket through a pod, end to end."
         action={
-          sub.stripe_customer_id ? (
+          sub.payment_provider === 'stripe' && sub.stripe_customer_id ? (
             <Button variant="outline" onClick={() => portal.mutate()}>
               <CreditCard className="h-4 w-4 mr-2" />
               Manage billing
+            </Button>
+          ) : sub.payment_provider && sub.plan !== 'free' ? (
+            <Button
+              variant="outline"
+              disabled={cancelSub.isPending || sub.cancel_at_period_end}
+              onClick={() => {
+                if (window.confirm('Cancel your subscription at the end of the current period?')) {
+                  cancelSub.mutate()
+                }
+              }}
+            >
+              <X className="h-4 w-4 mr-2" />
+              {sub.cancel_at_period_end ? 'Cancels at period end' : 'Cancel subscription'}
             </Button>
           ) : undefined
         }
@@ -98,7 +125,36 @@ export default function BillingPage() {
 
       {/* Plans */}
       <div>
-        <p className="onto-label mb-2">01 — Plans</p>
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+          <p className="onto-label">01 — Plans</p>
+
+          {/* Which gateway an upgrade below will use. Every gateway hands back
+              a redirect URL — a hosted checkout or approval page — so picking
+              one here is the only gateway-specific UI in the product; nothing
+              downstream needs to know which was chosen. */}
+          <div className="flex rounded-md border border-border overflow-hidden">
+            {GATEWAYS.map((g) => {
+              const Icon = g.icon
+              const enabled = billing.gateways_enabled[g.key]
+              return (
+                <button
+                  key={g.key}
+                  onClick={() => setGateway(g.key)}
+                  title={enabled ? undefined : `${g.label} isn’t configured on this install — upgrading will apply the plan directly`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${
+                    gateway === g.key
+                      ? 'bg-foreground text-background font-medium'
+                      : 'text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {g.label}
+                  {!enabled && <span className="opacity-60">·sim</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {plans.map((plan) => {
             const current = plan.key === sub.plan
@@ -137,7 +193,7 @@ export default function BillingPage() {
                   className="mt-5 w-full"
                   variant={current ? 'outline' : 'default'}
                   disabled={current || checkout.isPending}
-                  onClick={() => checkout.mutate(plan.key)}
+                  onClick={() => checkout.mutate({ plan: plan.key, gateway })}
                 >
                   {current ? 'Current plan' : plan.key === 'enterprise' ? 'Contact sales' : 'Upgrade'}
                 </Button>
@@ -145,10 +201,21 @@ export default function BillingPage() {
             )
           })}
         </div>
-        {!billing.stripe_enabled && (
+        {!billing.gateways_enabled[gateway] && (
           <p className="text-xs text-muted-foreground mt-3">
-            Stripe is not configured on this install — plan changes apply immediately without
-            payment. Set <code>STRIPE_SECRET_KEY</code> to enable checkout.
+            {GATEWAYS.find((g) => g.key === gateway)?.label} isn’t configured on this install —
+            an upgrade applies the plan directly instead of charging a card. Set the{' '}
+            {gateway === 'stripe' && <code>STRIPE_SECRET_KEY</code>}
+            {gateway === 'razorpay' && <code>RAZORPAY_KEY_ID</code>}
+            {gateway === 'paypal' && <code>PAYPAL_CLIENT_ID</code>}
+            {' '}environment variable to enable real checkout.
+          </p>
+        )}
+        {sub.payment_provider && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Currently billed via <strong>{GATEWAYS.find((g) => g.key === sub.payment_provider)?.label ?? sub.payment_provider}</strong>.
+            Switching gateways starts a new subscription — cancel the current one first if you
+            want to move.
           </p>
         )}
       </div>

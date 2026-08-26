@@ -2,6 +2,25 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '@/lib/api'
 import type { OrgMember, OrgInvitation, InviteRole } from '@/types'
 
+export interface OrgRole {
+  key: string
+  label: string
+  description: string
+  category: string
+  invitable: boolean
+}
+
+/** The role catalogue — every role a member can be invited or changed to,
+ *  with the description an admin needs to pick the right one. Not org-
+ *  scoped and rarely changes, so it is cached generously. */
+export function useOrgRoles() {
+  return useQuery<{ roles: OrgRole[] }>({
+    queryKey: ['org-roles'],
+    queryFn: () => api.get('/orgs/roles').then((r) => r.data),
+    staleTime: 10 * 60_000,
+  })
+}
+
 export function useOrgMembers(orgId: string) {
   return useQuery<OrgMember[]>({
     queryKey: ['org-members', orgId],

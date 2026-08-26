@@ -33,10 +33,31 @@ class Subscription(Base):
     max_projects: Mapped[int] = mapped_column(Integer, default=1)
     run_budget_cents: Mapped[int] = mapped_column(Integer, default=200)     # hard ceiling per single run
 
+    # Which gateway this subscription is actually paid through right now —
+    # stripe | razorpay | paypal | null (free plan, or applied directly with
+    # no gateway configured). Set the moment checkout starts, not only once a
+    # webhook confirms payment, because the cancel/portal endpoints need to
+    # know which gateway's API to call and a subscription only ever has one
+    # gateway active at a time — switching gateways means starting a new
+    # checkout, not running two in parallel.
+    payment_provider: Mapped[str | None] = mapped_column(String(20))
+
     # Stripe linkage (nullable — the platform runs fine without Stripe configured)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255))
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(255))
     stripe_price_id: Mapped[str | None] = mapped_column(String(255))
+
+    # Razorpay linkage — the India rail. No customer-id equivalent to Stripe's:
+    # Razorpay's subscription id is the only handle both the webhook and the
+    # cancel endpoint need.
+    razorpay_subscription_id: Mapped[str | None] = mapped_column(String(255))
+
+    # PayPal linkage. `paypal_payer_id` is PayPal's id for the payer, returned
+    # on subscription events — kept distinct from `paypal_subscription_id`
+    # because a support ticket referencing "the payer" needs the payer id, not
+    # the subscription id, to look someone up in the PayPal dashboard.
+    paypal_subscription_id: Mapped[str | None] = mapped_column(String(255))
+    paypal_payer_id: Mapped[str | None] = mapped_column(String(255))
 
     # Bring-your-own LLM key (Fernet-encrypted) — zero COGS path
     byo_llm_provider: Mapped[str | None] = mapped_column(String(50))

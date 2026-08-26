@@ -9,7 +9,7 @@ from app.models.run import Run, RunStep, Approval
 from app.models.project import Project
 from app.schemas.run import RunCreate, RunOut, RunStepOut, ApproveBody
 from app.routers.auth import get_current_user
-from app.routers._helpers import get_optional_org, owner_filter, OrgContext
+from app.routers._helpers import OrgContext, can_write, get_optional_org, owner_filter
 from app.models.user import User
 from app.services.notification_service import emit_run_event
 from app.services import policy_service
@@ -105,7 +105,7 @@ def create_run(
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
     """Trigger a new agent run for a project ticket."""
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot trigger runs")
     _assert_project_access(body.project_id, current_user, db, org_ctx)
 
@@ -256,7 +256,7 @@ def apply_run_decision(
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot approve runs")
     _assert_project_access(run.project_id, current_user, db, org_ctx)
 
@@ -318,7 +318,7 @@ def retry_run(
     original = db.query(Run).filter(Run.id == run_id).first()
     if not original:
         raise HTTPException(status_code=404, detail="Run not found")
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot retry runs")
     _assert_project_access(original.project_id, current_user, db, org_ctx)
 
@@ -344,7 +344,7 @@ def cancel_run(
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot cancel runs")
     _assert_project_access(run.project_id, current_user, db, org_ctx)
 

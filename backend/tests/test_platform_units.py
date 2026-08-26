@@ -1308,3 +1308,319 @@ class TestPluginVerificationSafety:
     def test_name_extraction_walks_into_a_list(self):
         from app.services.plugin_verify import _dig
         assert _dig({"items": [{"name": "first"}]}, "items.name") == "first"
+
+
+# ═══ Organisation roles ═══════════════════════════════════════════════════════
+#
+# Two independent access dimensions per role — can this role write at all, and
+# which admin domains does it administer — is where a registry like this goes
+# wrong silently: a role that should be read-only but was left off
+# WRITE_ROLES becomes a full member by accident, and a specialist role added
+# to the wrong domain set gets access nobody meant to grant it.
+
+class TestOrgRoleCatalogue:
+    def test_every_role_key_is_unique(self):
+        from app.services.org_roles import ROLES
+        keys = [r["key"] for r in ROLES]
+        assert len(keys) == len(set(keys))
+
+    def test_owner_and_admin_are_the_only_full_admins(self):
+        from app.services.org_roles import FULL_ADMIN_ROLES
+        assert FULL_ADMIN_ROLES == frozenset({"owner", "admin"})
+
+    def test_owner_cannot_be_invited(self):
+        # Ownership moves by transfer, a deliberate act by the current owner —
+        # never by picking a role in an invite form, which would let any admin
+        # mint a second owner.
+        from app.services.org_roles import INVITABLE_ROLES
+        assert "owner" not in INVITABLE_ROLES
+
+    def test_read_only_roles_cannot_write(self):
+        from app.services.org_roles import can_write
+        for role in ("viewer", "auditor", "client_guest"):
+            assert can_write(role) is False, role
+
+    def test_working_roles_can_write(self):
+        from app.services.org_roles import can_write
+        for role in ("owner", "admin", "engineering_lead", "billing_manager",
+                     "member", "reviewer"):
+            assert can_write(role) is True, role
+
+    def test_no_org_context_always_writes(self):
+        # A personal workspace (no X-Org-ID header) is never restricted by a
+        # role that does not apply to it.
+        from app.services.org_roles import can_write, is_domain_admin
+        assert can_write(None) is True
+        assert is_domain_admin(None, "billing") is True
+        assert is_domain_admin(None, "engineering") is True
+
+    def test_engineering_lead_administers_engineering_not_billing(self):
+        from app.services.org_roles import is_domain_admin
+        assert is_domain_admin("engineering_lead", "engineering") is True
+        assert is_domain_admin("engineering_lead", "billing") is False
+
+    def test_billing_manager_administers_billing_not_engineering(self):
+        # The mirror image of the above — a specialist role must not become a
+        # second flavour of full admin by accident.
+        from app.services.org_roles import is_domain_admin
+        assert is_domain_admin("billing_manager", "billing") is True
+        assert is_domain_admin("billing_manager", "engineering") is False
+
+    def test_owner_and_admin_administer_every_domain(self):
+        from app.services.org_roles import is_domain_admin
+        for role in ("owner", "admin"):
+            assert is_domain_admin(role, "billing") is True
+            assert is_domain_admin(role, "engineering") is True
+            assert is_domain_admin(role, "some-future-domain") is True
+
+    def test_member_and_reviewer_administer_no_domain(self):
+        # They can write their own work; they cannot change org configuration.
+        from app.services.org_roles import is_domain_admin
+        for role in ("member", "reviewer"):
+            assert is_domain_admin(role, "billing") is False
+            assert is_domain_admin(role, "engineering") is False
+
+    def test_unknown_role_administers_nothing_and_cannot_write(self):
+        # A role string that somehow isn't in the registry must fail closed,
+        # not open — the opposite default would turn a typo into a privilege
+        # escalation.
+        from app.services.org_roles import can_write, is_domain_admin
+        assert can_write("not-a-real-role") is False
+        assert is_domain_admin("not-a-real-role", "billing") is False
+
+    def test_catalog_never_loses_a_role(self):
+        from app.services.org_roles import ROLES, catalog
+        assert len(catalog()) == len(ROLES)
+
+    def test_catalog_exposes_no_access_control_internals(self):
+        # `domains` and `can_write` are enforcement details, not something to
+        # render as a checkbox grid in an invite form.
+        from app.services.org_roles import catalog
+        for role in catalog():
+            assert "domains" not in role and "can_write" not in role
+
+    def test_all_keys_matches_the_check_constraint_source(self):
+        from app.services.org_roles import ALL_KEYS, ROLES
+        assert set(ALL_KEYS) == {r["key"] for r in ROLES}
+
+
+class TestHelpersUseTheRoleCatalogue:
+    """`can_write` / `is_domain_admin` in _helpers.py are thin OrgContext
+    wrappers around org_roles — pinned so a future edit to one side cannot
+    silently stop matching the other."""
+
+    def _ctx(self, role):
+        from app.routers._helpers import OrgContext
+        return OrgContext(org_id="00000000-0000-0000-0000-000000000000",
+                          org_name="Acme", role=role)
+
+    def test_can_write_matches_the_registry(self):
+        from app.routers._helpers import can_write as helper_can_write
+        from app.services.org_roles import can_write as registry_can_write
+        for role in ("owner", "admin", "member", "reviewer", "viewer", "auditor", "client_guest"):
+            assert helper_can_write(self._ctx(role)) == registry_can_write(role)
+
+    def test_is_domain_admin_matches_the_registry(self):
+        from app.routers._helpers import is_domain_admin as helper_domain_admin
+        from app.services.org_roles import is_domain_admin as registry_domain_admin
+        for role in ("owner", "admin", "engineering_lead", "billing_manager", "member"):
+            for domain in ("engineering", "billing"):
+                assert (helper_domain_admin(self._ctx(role), domain)
+                        == registry_domain_admin(role, domain))
+
+    def test_none_context_is_the_personal_workspace_and_always_passes(self):
+        from app.routers._helpers import can_write, is_domain_admin
+        assert can_write(None) is True
+        assert is_domain_admin(None, "billing") is True
+
+
+# ═══ Payment gateways ══════════════════════════════════════════════════════════
+#
+# Three gateways, one normalised event shape. The risk is entirely in the
+# normalisation: a field the router expects that a parser silently omits, or a
+# status string one gateway uses that the map doesn't translate, produces a
+# subscription stuck on the wrong plan with no error anywhere.
+
+class TestRazorpayEventParsing:
+    def test_subscription_activated_carries_owner_key_and_plan(self):
+        from app.services.razorpay_service import parse_event
+        event = {
+            "event": "subscription.activated",
+            "payload": {"subscription": {"entity": {
+                "id": "sub_abc123", "status": "active", "customer_id": "cust_1",
+                "current_start": 1735689600, "current_end": 1738368000,
+                "notes": {"plan": "team", "owner_key": "org:1234"},
+            }}},
+        }
+        parsed = parse_event(event)
+        assert parsed["owner_key"] == "org:1234"
+        assert parsed["plan"] == "team"
+        assert parsed["status"] == "active"
+        assert parsed["subscription_id"] == "sub_abc123"
+
+    def test_halted_maps_to_past_due_not_canceled(self):
+        # Razorpay gave up retrying a failed charge — a billing problem to
+        # surface, not a reason to silently downgrade someone to free.
+        from app.services.razorpay_service import parse_event
+        event = {"event": "subscription.halted", "payload": {"subscription": {"entity": {
+            "id": "sub_x", "status": "halted", "notes": {},
+        }}}}
+        assert parse_event(event)["status"] == "past_due"
+
+    def test_cancelled_and_completed_and_expired_all_map_to_canceled(self):
+        from app.services.razorpay_service import parse_event
+        for rzp_status in ("cancelled", "completed", "expired"):
+            event = {"event": "subscription.updated", "payload": {"subscription": {"entity": {
+                "id": "sub_x", "status": rzp_status, "notes": {},
+            }}}}
+            assert parse_event(event)["status"] == "canceled", rzp_status
+
+    def test_payment_failed_has_no_owner_key_but_has_subscription_id(self):
+        # This is the event the router's subscription-id fallback lookup exists
+        # for — no notes dict to read owner_key from.
+        from app.services.razorpay_service import parse_event
+        event = {"event": "payment.failed", "payload": {"payment": {"entity": {
+            "subscription_id": "sub_xyz", "customer_id": "cust_1",
+        }}}}
+        parsed = parse_event(event)
+        assert parsed["owner_key"] is None
+        assert parsed["subscription_id"] == "sub_xyz"
+        assert parsed["status"] == "past_due"
+
+    def test_unrecognised_event_returns_none_rather_than_a_partial_dict(self):
+        from app.services.razorpay_service import parse_event
+        assert parse_event({"event": "something.unhandled", "payload": {}}) is None
+
+    def test_webhook_signature_round_trips(self):
+        import hashlib, hmac
+        from app.services import razorpay_service
+        razorpay_service.settings.razorpay_webhook_secret = "test-secret"
+        body = b'{"event":"subscription.activated"}'
+        sig = hmac.new(b"test-secret", body, hashlib.sha256).hexdigest()
+        razorpay_service.verify_webhook(body, sig)   # must not raise
+
+    def test_wrong_signature_is_rejected(self):
+        from app.services import razorpay_service
+        razorpay_service.settings.razorpay_webhook_secret = "test-secret"
+        with pytest.raises(ValueError):
+            razorpay_service.verify_webhook(b'{"a":1}', "not-the-right-signature")
+
+    def test_a_tampered_body_is_rejected_even_with_a_valid_looking_signature(self):
+        import hashlib, hmac
+        from app.services import razorpay_service
+        razorpay_service.settings.razorpay_webhook_secret = "test-secret"
+        original = b'{"event":"subscription.activated"}'
+        sig = hmac.new(b"test-secret", original, hashlib.sha256).hexdigest()
+        tampered = b'{"event":"subscription.activated","amount":999999}'
+        with pytest.raises(ValueError):
+            razorpay_service.verify_webhook(tampered, sig)
+
+
+class TestPayPalEventParsing:
+    def test_subscription_activated_reverses_the_plan_id_to_a_plan_name(self):
+        from app.services import paypal_service
+        paypal_service.settings.paypal_plan_team = "P-TEAM123"
+        event = {
+            "event_type": "BILLING.SUBSCRIPTION.ACTIVATED",
+            "resource": {
+                "id": "I-ABC123", "plan_id": "P-TEAM123", "status": "ACTIVE",
+                "custom_id": "user:5678",
+                "subscriber": {"payer_id": "payer_1"},
+                "billing_info": {"next_billing_time": "2026-09-26T10:00:00Z"},
+            },
+        }
+        parsed = paypal_service.parse_event(event)
+        assert parsed["plan"] == "team"
+        assert parsed["owner_key"] == "user:5678"
+        assert parsed["status"] == "active"
+        assert parsed["period_end"] == "2026-09-26T10:00:00Z"
+
+    def test_an_unmapped_plan_id_yields_no_plan_rather_than_a_wrong_one(self):
+        from app.services import paypal_service
+        event = {"event_type": "BILLING.SUBSCRIPTION.ACTIVATED",
+                  "resource": {"id": "I-X", "plan_id": "P-UNKNOWN", "status": "ACTIVE",
+                              "custom_id": "user:1"}}
+        assert paypal_service.parse_event(event)["plan"] is None
+
+    def test_status_map_covers_the_documented_paypal_states(self):
+        from app.services.paypal_service import _STATUS_MAP
+        assert _STATUS_MAP["ACTIVE"] == "active"
+        assert _STATUS_MAP["SUSPENDED"] == "past_due"
+        assert _STATUS_MAP["CANCELLED"] == "canceled"
+
+    def test_non_subscription_events_return_none(self):
+        from app.services.paypal_service import parse_event
+        assert parse_event({"event_type": "CUSTOMER.DISPUTE.CREATED", "resource": {}}) is None
+
+    def test_webhook_verification_requires_the_transmission_headers(self):
+        # A POST shaped like a PayPal webhook but missing the signature
+        # headers must be rejected before any network call is attempted —
+        # there is nothing to verify without them. (webhook_id set so this
+        # isolates the header check from the separate "gateway not configured"
+        # failure mode.)
+        from app.services import paypal_service
+        paypal_service.settings.paypal_webhook_id = "WH-TEST-ID"
+        with pytest.raises(ValueError):
+            paypal_service.verify_webhook({}, b'{"event_type":"BILLING.SUBSCRIPTION.ACTIVATED"}')
+
+
+class TestGatewayEventShapeParity:
+    """
+    The router's `_apply_billing_event` reads one flat shape from all three
+    services. Pinned here so a future edit to one parser can't quietly drop a
+    key the other two still provide — that failure has no error, just a
+    subscription that silently stops updating one field.
+    """
+    COMMON_KEYS = {"owner_key", "plan", "status", "subscription_id"}
+
+    def test_stripe_checkout_completed_has_the_common_keys(self):
+        from app.services.stripe_service import parse_event
+        event = {"type": "checkout.session.completed",
+                 "data": {"object": {"metadata": {"plan": "team", "owner_key": "org:1"},
+                                     "client_reference_id": "org:1",
+                                     "customer": "cus_1", "subscription": "sub_1"}}}
+        parsed = parse_event(event)
+        assert self.COMMON_KEYS <= parsed.keys()
+
+    def test_razorpay_activated_has_the_common_keys(self):
+        from app.services.razorpay_service import parse_event
+        event = {"event": "subscription.activated", "payload": {"subscription": {"entity": {
+            "id": "sub_1", "status": "active", "notes": {"plan": "team", "owner_key": "org:1"},
+        }}}}
+        assert self.COMMON_KEYS <= parse_event(event).keys()
+
+    def test_paypal_activated_has_the_common_keys(self):
+        from app.services.paypal_service import parse_event
+        event = {"event_type": "BILLING.SUBSCRIPTION.ACTIVATED",
+                 "resource": {"id": "I-1", "plan_id": None, "status": "ACTIVE", "custom_id": "org:1"}}
+        assert self.COMMON_KEYS <= parse_event(event).keys()
+
+
+class TestGatewaySimulatedFallback:
+    """Every gateway must degrade to a simulated checkout when unconfigured,
+    the same guarantee Stripe already made — a deployment with zero payment
+    configuration still has a working billing path to develop and demo against."""
+
+    def test_razorpay_simulates_when_unconfigured(self):
+        from app.services import razorpay_service
+        razorpay_service.settings.razorpay_key_id = ""
+        razorpay_service.settings.razorpay_key_secret = ""
+        result = razorpay_service.create_subscription(plan="team", owner_key="org:1", email="a@b.com")
+        assert result["simulated"] is True and result["url"]
+
+    def test_paypal_simulates_when_unconfigured(self):
+        from app.services import paypal_service
+        paypal_service.settings.paypal_client_id = ""
+        paypal_service.settings.paypal_client_secret = ""
+        result = paypal_service.create_subscription(plan="team", owner_key="org:1", email="a@b.com")
+        assert result["simulated"] is True and result["url"]
+
+    def test_razorpay_refuses_the_free_plan(self):
+        from app.services import razorpay_service
+        with pytest.raises(ValueError):
+            razorpay_service.create_subscription(plan="free", owner_key="org:1", email=None)
+
+    def test_paypal_refuses_the_free_plan(self):
+        from app.services import paypal_service
+        with pytest.raises(ValueError):
+            paypal_service.create_subscription(plan="free", owner_key="org:1", email=None)

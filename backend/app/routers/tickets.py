@@ -10,7 +10,7 @@ from app.models.project import Project
 from app.models.connection import Connection
 from app.schemas.ticket import TicketOut
 from app.routers.auth import get_current_user
-from app.routers._helpers import get_optional_org, owner_filter, OrgContext
+from app.routers._helpers import OrgContext, can_write, get_optional_org, owner_filter
 from app.models.user import User
 from app.services import jira_service
 from app.services.encryption import decrypt_token
@@ -73,7 +73,7 @@ def sync_tickets(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot sync tickets")
     project = _get_project(project_id, current_user, db, org_ctx)
 

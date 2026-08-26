@@ -19,7 +19,7 @@ from app.database import get_db
 from app.models.memory import MemoryChunk, MemoryIndex
 from app.models.project import Project
 from app.models.user import User
-from app.routers._helpers import OrgContext, get_optional_org, owner_filter
+from app.routers._helpers import OrgContext, can_write, get_optional_org, is_domain_admin, owner_filter
 from app.routers.auth import get_current_user
 from app.services import embedding_service, memory_service
 
@@ -83,7 +83,7 @@ def start_index(
 ):
     """Kick off indexing in the background; falls back to inline on a broker outage."""
     _assert_project(db, project_id, current_user, org_ctx)
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(403, "Viewers cannot re-index project memory")
 
     idx = memory_service.get_index(db, project_id)
@@ -171,7 +171,7 @@ def clear_memory(
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
     _assert_project(db, project_id, current_user, org_ctx)
-    if org_ctx and org_ctx.role not in ("owner", "admin"):
+    if org_ctx and not is_domain_admin(org_ctx, "engineering"):
         raise HTTPException(403, "Only owners and admins can clear project memory")
     db.query(MemoryChunk).filter(MemoryChunk.project_id == project_id).delete()
     idx = db.query(MemoryIndex).filter(MemoryIndex.project_id == project_id).first()

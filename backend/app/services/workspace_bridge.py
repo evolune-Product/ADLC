@@ -35,6 +35,7 @@ from app.models.run import Run
 from app.models.ticket import Ticket
 from app.models.user import User
 from app.models.workspace import Channel, Message
+from app.services import org_roles
 from app.services import workspace_service as ws
 
 log = logging.getLogger(__name__)
@@ -249,10 +250,10 @@ def dispatch_agent_mention(
                "Assign one in the project settings first.")
         return []
 
-    # Viewers can talk; they cannot spend the org's quota. Same rule as the
-    # Runs page, enforced here rather than trusted from the client.
-    if org_ctx and org_ctx.role == "viewer":
-        _reply(db, channel, message, "Viewers can't trigger runs in this workspace.")
+    # Read-only members can talk; they cannot spend the org's quota. Same rule
+    # as the Runs page, enforced here rather than trusted from the client.
+    if org_ctx and not org_roles.can_write(org_ctx.role):
+        _reply(db, channel, message, "You have read-only access and can't trigger runs.")
         return []
 
     pod = db.query(Pod).filter(Pod.id == project.pod_id).first()

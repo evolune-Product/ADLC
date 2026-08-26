@@ -32,7 +32,7 @@ from app.database import get_db
 from app.models.connection import Connection
 from app.models.integration import ModelCredential, mask
 from app.models.user import User
-from app.routers._helpers import OrgContext, get_optional_org
+from app.routers._helpers import OrgContext, get_optional_org, is_domain_admin
 from app.routers.auth import get_current_user
 from app.services import llm_providers, llm_service, plugin_verify, plugins
 from app.services.encryption import decrypt_token, encrypt_token
@@ -60,12 +60,27 @@ class ConnectBody(BaseModel):
     extra: str | None = None
 
 
-def _require_admin(org_ctx: Optional[OrgContext]) -> None:
-    """A model key is workspace-wide spending authority and a plugin token is
-    workspace-wide access to someone else's system. Members can use them;
-    only admins may install them."""
-    if org_ctx and org_ctx.role not in ("owner", "admin"):
-        raise HTTPException(status_code=403, detail="Only workspace admins can change integrations")
+def _require_billing_admin(org_ctx: Optional[OrgContext]) -> None:
+    """
+    A model-provider key is spending authority — whoever installs it can run
+    up a vendor bill on the workspace's account. That is the billing domain,
+    not the engineering one: a billing manager administers it without needing
+    write access to a single agent, and an engineering lead who is not also
+    a billing manager should not be able to install a key charged to finance.
+    """
+    if org_ctx and not is_domain_admin(org_ctx, "billing"):
+        raise HTTPException(status_code=403,
+                            detail="Only owners, admins and billing managers can manage model provider keys")
+
+
+def _require_engineering_admin(org_ctx: Optional[OrgContext]) -> None:
+    """A plugin token is access to a system the pipeline reads or writes —
+    GitHub, Jira, Slack. That is the engineering domain: an engineering lead
+    connects these without needing billing authority, and a billing manager
+    should not be the one wiring up the org's GitHub token."""
+    if org_ctx and not is_domain_admin(org_ctx, "engineering"):
+        raise HTTPException(status_code=403,
+                            detail="Only owners, admins and engineering leads can manage plugin connections")
 
 
 def _scope(current_user: User, org_ctx: Optional[OrgContext]):
@@ -144,7 +159,7 @@ def upsert_credential(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    _require_admin(org_ctx)
+    _require_billing_admin(org_ctx)
 
     spec = llm_providers.get(provider)
     if not spec:
@@ -209,7 +224,7 @@ def delete_credential(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    _require_admin(org_ctx)
+    _require_billing_admin(org_ctx)
     row = (
         db.query(ModelCredential)
         .filter(_scope(current_user, org_ctx), ModelCredential.provider == provider)
@@ -236,7 +251,7 @@ def test_credential(
     two-token completion costs a fraction of a cent and answers the question
     that actually matters — can this workspace generate with this key.
     """
-    _require_admin(org_ctx)
+    _require_billing_admin(org_ctx)
     row = (
         db.query(ModelCredential)
         .filter(_scope(current_user, org_ctx), ModelCredential.provider == provider)
@@ -344,7 +359,7 @@ def connect_plugin(
     thrown away. Someone who pasted a token with one missing scope should be
     able to fix the scope and re-verify, not retype the whole form.
     """
-    _require_admin(org_ctx)
+    _require_engineering_admin(org_ctx)
 
     spec = plugins.get(key)
     if not spec:

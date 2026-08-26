@@ -1168,16 +1168,185 @@ Rules worth keeping:
 - **`catalog()` never returns the `verify` recipes.** They are internal, and
   publishing them invites probing vendors through us.
 
+## Organisation Roles (all nine of them)
+
+Four roles — owner, admin, member, viewer — reduced every access check in the
+codebase to two literal string comparisons, and that is not how a company
+buying this platform is actually organised. A billing manager who should never
+touch an agent's config, a tech lead who should never touch the company's
+payment method, a reviewer whose approval-gate accountability should be named
+rather than "whoever clicked the button", a compliance auditor who must be
+*structurally* unable to write anything, an external client who watches
+progress in one channel and nothing else — none of those existed as concepts.
+Now they do.
+
+```
+app/services/org_roles.py          ← the registry: 9 roles, two access axes
+app/routers/_helpers.py            ← can_write() / is_domain_admin() — what
+                                      every router actually calls
+app/models/organization.py         ← CHECK constraints built FROM the registry
+migrations/versions/f6a7b8c9d0e1_org_roles.py
+frontend/src/hooks/useOrgMembers.ts → useOrgRoles()
+frontend/src/components/org/InviteMemberModal.tsx  ← catalog-driven, grouped by category
+```
+
+| Role | Domain | Can write | Administers |
+|---|---|---|---|
+| `owner` | leadership | ✅ | everything |
+| `admin` | leadership | ✅ | everything except deleting the org / transferring ownership |
+| `engineering_lead` | engineering | ✅ | skills, agents, pods, projects, connections, policies |
+| `billing_manager` | finance | ✅ | subscription, payment method, model-provider keys |
+| `member` | engineering | ✅ | nothing (day-to-day work only) |
+| `reviewer` | engineering | ✅ | nothing — same access as member, named for who approves |
+| `auditor` | oversight | ❌ | — |
+| `viewer` | oversight | ❌ | — |
+| `client_guest` | external | ❌ | — |
+
+**Two independent axes, not one rank.** The old system was a single ordering
+and that is structurally wrong for a specialist: rank alone cannot express
+"full authority over billing, none over agents" without either granting
+blanket admin (wrong) or blanket member (also wrong — they need billing
+write access a member doesn't have). So a role carries `can_write` (may it
+mutate *anything*?) and `domains` (which admin-only areas does it administer?
+`"*"` for owner/admin, a specific set otherwise, empty for member/reviewer).
+
+**`can_write` / `is_domain_admin` are what every router actually calls.**
+`require_org_role()` (rank-based) still exists and still works for anyone who
+calls it, but nothing in this codebase does — every real gate was mechanically
+converted: `org_ctx.role == "viewer"` → `not can_write(org_ctx)`,
+`org_ctx.role not in ("owner", "admin")` → `not is_domain_admin(org_ctx, "<domain>")`.
+Zero literal role-string comparisons remain outside `org_roles.py` itself.
+
+**Creation is `can_write`-gated; deletion is `is_domain_admin`-gated — this was
+already the design before roles existed, and the conversion preserved it
+exactly.** Any writable role (member, reviewer, billing_manager…) can create a
+skill; only an engineering-domain admin can delete one. A billing manager can
+therefore create a skill and cannot delete it — surprising the first time you
+read it, correct once you remember creating one is ordinary work and deleting
+one is the consequential action.
+
+**`integrations.py` needed a real split**, not one admin check: model-provider
+credentials (spending authority) are billing-domain, plugin connections
+(GitHub/Slack tokens) are engineering-domain. `_require_billing_admin` and
+`_require_engineering_admin` replaced one `_require_admin`.
+
+**Ownership moves by transfer only.** `"owner"` is deliberately absent from
+`INVITABLE_ROLES` — inviting someone straight in as owner would let any admin
+mint a second one. The invite and role-update endpoints both validate against
+the registry and 422 on `"owner"` with a message pointing at why.
+
+**The CHECK constraint is built from the registry, not retyped.**
+`",".join(f"'{k}'" for k in ALL_KEYS)` inside `organization.py` — a role added
+to `org_roles.py` cannot leave the database constraint stale the way two
+independently maintained literal lists eventually would.
+
+**Fails closed.** A role string the registry doesn't recognise administers
+nothing and cannot write — the opposite default would turn a typo into a
+privilege escalation. Pinned by `TestOrgRoleCatalogue::test_unknown_role_*`.
+
+## Payment Gateways (Stripe, Razorpay, PayPal)
+
+Three gateways, chosen at checkout time, each independently optional — a
+deployment can enable any subset, and every unconfigured gateway degrades to
+a simulated checkout exactly the way Stripe already did before this existed.
+
+```
+app/services/stripe_service.py      ← unchanged shape, gained cancel_subscription()
+app/services/razorpay_service.py    ← the India rail
+app/services/paypal_service.py      ← the no-corporate-card rail
+app/routers/billing.py              ← _apply_billing_event() — one shared applier
+migrations/versions/a7b8c9d0e1f2_payment_gateways.py
+frontend/src/pages/billing/BillingPage.tsx  ← gateway picker, cancel action
+```
+
+**Why Razorpay and PayPal at all.** International cards on Razorpay run 3% +
+GST; UPI/netbanking/domestic cards run 2% + GST; a bank transfer via
+Razorpay's export account runs 1% + GST with **zero forex markup**. For a
+customer priced in rupees that is not a rounding difference — 1-3 points of FX
+spread on every single charge is what "just use Stripe everywhere" actually
+costs an Indian customer. PayPal exists for the mirror case: a buyer with a
+PayPal business account and no corporate card program, common outside the
+US/EU card networks.
+
+**Subscriptions, not one-off orders, on both.** Both APIs have an "Orders"
+surface for a single payment and a separate "Subscriptions" surface for
+recurring billing; a monthly plan is the latter. Both require a `plan_id`
+created once in the vendor's dashboard per tier — the same precondition
+Stripe's price ids already had, so nothing new is asked of whoever configures
+a deployment.
+
+**No vendor JS SDK anywhere in the frontend.** Creating a Razorpay
+subscription returns a `short_url` (a hosted checkout page); creating a PayPal
+one returns an `approve` link in its `links` array. Both are "redirect out,
+come back on success" — the identical shape Stripe Checkout already used. One
+`useCheckout({ plan, gateway })` hook drives all three; there is no
+checkout.js or PayPal Buttons script loaded anywhere.
+
+**One shared event shape, three very different webhook mechanisms.**
+`stripe_service`, `razorpay_service` and `paypal_service` each normalise their
+own event format into `{owner_key, plan, status, customer_id, subscription_id,
+period_start, period_end, cancel_at_period_end}`, so `billing.py`'s
+`_apply_billing_event()` only ever has to know *one* shape:
+
+  - **Stripe**: HMAC over the raw body, `Stripe-Signature` header, verified
+    locally by the SDK.
+  - **Razorpay**: HMAC-SHA256 over the raw body with the webhook secret,
+    `X-Razorpay-Signature` header, verified locally with
+    `hmac.compare_digest` — never `==`, which would leak timing information
+    about how much of the signature matched.
+  - **PayPal has no local shortcut.** Verification is a real API call to
+    `/v1/notifications/verify-webhook-signature` with five transmission
+    headers plus the raw event body; PayPal answers whether it was genuine.
+    Skipping that call and trusting the body directly would mean any request
+    merely shaped like a PayPal webhook gets treated as one. The transmission
+    headers are checked for presence **before** the OAuth call that would
+    otherwise precede it — a malformed request should not cost a network
+    round trip to discover, and doing it in the other order was a genuine bug
+    caught by the end-to-end script (a missing-header test was silently
+    making a live call with empty credentials).
+
+**`payment_provider` is set the moment checkout starts**, not only once a
+webhook confirms payment — `/billing/cancel` and `/billing/portal` need to
+know which gateway's API to call, and a subscription only ever has one gateway
+active. Switching gateways means cancelling and starting a new checkout, never
+two running in parallel.
+
+**`_find_subscription` has a fallback path for events with no `owner_key`.**
+Razorpay's `payment.failed` and PayPal's `PAYMENT.SALE.DENIED` reference the
+payment, not the subscription's own metadata — those events carry no owner
+key at all. The fallback matches on the gateway's own `subscription_id`, which
+the row already has on file from the checkout that created it.
+
+**PayPal's `period_end` is an ISO 8601 string; Stripe's and Razorpay's are
+unix timestamps.** `_to_datetime()` in `billing.py` normalises both shapes so
+the shared applier never has to know which gateway produced the value.
+
+**No customer portal for Razorpay or PayPal.** Stripe's hosted portal has no
+equivalent on either — `/billing/portal` stays Stripe-only and refuses with a
+clear message on a non-Stripe subscription; `/billing/cancel` is the
+gateway-agnostic action every subscriber uses instead, dispatching to
+whichever service's `cancel_subscription()` matches `sub.payment_provider`.
+Razorpay cancels at the next cycle end (mirroring Stripe); PayPal's
+Subscriptions API has no "cancel at period end" option and cancels
+immediately, which the router applies the free plan for on the spot.
+
+**No SDK dependency for either new gateway.** Both REST APIs are simple
+enough that `httpx` directly was the right call, the same choice
+`jira_service.py` already made — one more Python package is not worth it for
+Basic-auth-plus-JSON.
+
 ## What Still Isn't Built (Phase 12+)
 
 - SAML SSO and SCIM directory provisioning (OIDC SSO **is** built — see above)
 - Marketplace creator payouts (listings support pricing; no payout flow)
-- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 186 pytest unit tests)
+- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 223 pytest unit tests)
 - Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
 - MinIO skill file storage (skills still save `md_content` direct to DB)
 - Reviewer suggestion for GitLab merge requests (GitHub only today)
-- INR pricing, GST and Razorpay — the billing path is Stripe-only, which blocks
-  the India motion entirely. See `documents/MARKET_RESEARCH_2026-08-25.md` §4.2.
+- ~~INR pricing, GST and Razorpay~~ — **Razorpay is now built** (see "Payment
+  Gateways" above); GST-inclusive INR *pricing* (the plan catalogue itself
+  quoted in ₹, not just the payment rail) is still open. See
+  `documents/MARKET_RESEARCH_2026-08-25.md` §4.2.
 - Mobile/PWA push for Workspace. The layout is responsive, but a WhatsApp
   replacement with no push notification on a phone is not one.
 - Voice notes in Workspace — the most-used WhatsApp feature not yet replicated.

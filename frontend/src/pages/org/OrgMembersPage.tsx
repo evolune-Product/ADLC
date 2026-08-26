@@ -5,14 +5,16 @@ import { UserPlus, Trash2, X } from 'lucide-react'
 import { useOrgs } from '@/hooks/useOrgs'
 import {
   useOrgMembers, useUpdateMemberRole, useRemoveMember,
-  useOrgInvitations, useRevokeInvite,
+  useOrgInvitations, useRevokeInvite, useOrgRoles,
 } from '@/hooks/useOrgMembers'
 import InviteMemberModal from '@/components/org/InviteMemberModal'
 import { useAuthStore } from '@/stores/authStore'
 import { getApiError } from '@/lib/api'
 import type { InviteRole } from '@/types'
 
-const ROLE_OPTIONS: InviteRole[] = ['viewer', 'member', 'admin']
+// Fed from GET /orgs/roles at render time — see useOrgRoles below — rather
+// than a hardcoded list, so a role added on the backend appears here
+// without a frontend deploy.
 
 export default function OrgMembersPage() {
   const { orgId } = useParams<{ orgId: string }>()
@@ -30,6 +32,13 @@ export default function OrgMembersPage() {
 
   const myMembership = members.find((m) => m.user_id === user?.id)
   const isAdmin = myMembership?.role === 'admin' || myMembership?.role === 'owner'
+  const { data: roleData } = useOrgRoles()
+  const invitableRoles = (roleData?.roles ?? []).filter((r) => r.invitable)
+  // Multi-word role keys ('engineering_lead') read badly under CSS
+  // capitalize; the catalogue's own label ('Engineering lead') is correct
+  // and falls back to the raw key if the catalogue hasn't loaded yet.
+  const roleLabel = (key: string) =>
+    roleData?.roles.find((r) => r.key === key)?.label ?? key
 
   if (!orgId) return null
 
@@ -89,12 +98,12 @@ export default function OrgMembersPage() {
                       }}
                       className="text-xs border border-border rounded px-2 py-1 bg-background text-foreground focus:outline-none"
                     >
-                      {ROLE_OPTIONS.map((r) => (
-                        <option key={r} value={r}>{r}</option>
+                      {invitableRoles.map((r) => (
+                        <option key={r.key} value={r.key} title={r.description}>{r.label}</option>
                       ))}
                     </select>
                   ) : (
-                    <span className="text-xs text-muted-foreground capitalize">{m.role}</span>
+                    <span className="text-xs text-muted-foreground">{roleLabel(m.role)}</span>
                   )}
                 </td>
                 {isAdmin && (
@@ -140,7 +149,7 @@ export default function OrgMembersPage() {
                 {invitations.map((inv) => (
                   <tr key={inv.id} className="border-b border-border last:border-0">
                     <td className="px-4 py-3 text-sm text-foreground">{inv.email}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground capitalize">{inv.role}</td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground">{roleLabel(inv.role)}</td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {inv.expires_at ? new Date(inv.expires_at).toLocaleDateString() : '—'}
                     </td>

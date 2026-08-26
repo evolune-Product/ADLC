@@ -24,7 +24,7 @@ from app.database import get_db
 from app.models.agent import Agent
 from app.models.pod import Pod, PodAgent
 from app.models.user import User
-from app.routers._helpers import get_or_404, get_optional_org, owner_filter, OrgContext
+from app.routers._helpers import OrgContext, can_write, get_optional_org, get_or_404, is_domain_admin, owner_filter
 from app.routers.auth import get_current_user
 from app.schemas.pod import PodAgentOut, PodCreate, PodOut, PodUpdate
 
@@ -99,7 +99,7 @@ def create_pod(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot create resources")
     pod = Pod(
         user_id=current_user.id,
@@ -133,7 +133,7 @@ def update_pod(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot update resources")
     pod = get_or_404(Pod, pod_id, current_user.id, db, "Pod", org_ctx)
     data = body.model_dump(exclude_unset=True)
@@ -157,7 +157,7 @@ def delete_pod(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role not in ("owner", "admin"):
+    if org_ctx and not is_domain_admin(org_ctx, "engineering"):
         raise HTTPException(status_code=403, detail="Admin or owner access required to delete")
     pod = get_or_404(Pod, pod_id, current_user.id, db, "Pod", org_ctx)
     db.delete(pod)
@@ -171,7 +171,7 @@ def duplicate_pod(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot create resources")
     pod = get_or_404(Pod, pod_id, current_user.id, db, "Pod", org_ctx)
     new_pod = Pod(

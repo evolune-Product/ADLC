@@ -1,6 +1,9 @@
 // ─── Organizations ───────────────────────────────────────────────────────────
 export type OrgRole = 'owner' | 'admin' | 'member' | 'viewer'
-export type InviteRole = 'admin' | 'member' | 'viewer'
+// No longer a closed union — the role list is the catalogue served by
+// GET /orgs/roles (see useOrgRoles). A Literal here would need editing
+// every time a role is added on the backend.
+export type InviteRole = string
 export type InviteStatus = 'pending' | 'accepted' | 'expired' | 'revoked'
 
 export interface Organization {

@@ -30,7 +30,7 @@ from app.models.organization import OrgMember
 from app.models.project import Project
 from app.models.run import Approval, Run
 from app.models.user import User
-from app.routers._helpers import OrgContext, get_optional_org, owner_filter
+from app.routers._helpers import OrgContext, get_optional_org, is_domain_admin, owner_filter
 from app.routers.auth import get_current_user
 from app.services.policy_service import DEFAULT_POLICY
 
@@ -83,8 +83,11 @@ def _policy_out(p: ApprovalPolicy) -> dict:
 
 
 def _require_admin(org_ctx: Optional[OrgContext]) -> None:
-    if org_ctx and org_ctx.role not in ("owner", "admin"):
-        raise HTTPException(403, "Only owners and admins can change governance settings")
+    # CISO-facing config — policies, API keys, webhooks — sits in the same
+    # "engineering" domain as skills/agents/pods: it is the pipeline's rules,
+    # not the company's spend, so an engineering lead administers it too.
+    if org_ctx and not is_domain_admin(org_ctx, "engineering"):
+        raise HTTPException(403, "Only owners, admins and engineering leads can change governance settings")
 
 
 @router.get("/policies")

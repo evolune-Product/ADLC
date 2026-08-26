@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Copy, Check, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { useInviteMember } from '@/hooks/useOrgMembers'
+import { useInviteMember, useOrgRoles } from '@/hooks/useOrgMembers'
 import { getApiError } from '@/lib/api'
 import type { InviteRole } from '@/types'
 
@@ -10,15 +10,18 @@ interface Props {
   onClose: () => void
 }
 
-const ROLES: { value: InviteRole; label: string; desc: string }[] = [
-  { value: 'viewer',  label: 'Viewer',  desc: 'Read-only access to all resources' },
-  { value: 'member',  label: 'Member',  desc: 'Can create and update resources' },
-  { value: 'admin',   label: 'Admin',   desc: 'Can manage members and delete resources' },
-]
-
 export default function InviteMemberModal({ orgId, onClose }: Props) {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<InviteRole>('member')
+  const { data: roleData } = useOrgRoles()
+  // The invite form only ever offers roles the invitee can actually be
+  // assigned — owner is deliberately absent from the catalogue's
+  // invitable set, since ownership moves by transfer, not by invite.
+  const roles = (roleData?.roles ?? []).filter((r) => r.invitable)
+  const grouped = roles.reduce<Record<string, typeof roles>>((acc, r) => {
+    (acc[r.category] ??= []).push(r)
+    return acc
+  }, {})
   const [inviteUrl, setInviteUrl] = useState('')
   const [copied, setCopied] = useState(false)
 
@@ -89,22 +92,29 @@ export default function InviteMemberModal({ orgId, onClose }: Props) {
 
             <div>
               <label className="onto-label mb-1.5 block">Role</label>
-              <div className="space-y-2">
-                {ROLES.map((r) => (
-                  <label key={r.value} className="flex items-start gap-3 cursor-pointer group">
-                    <input
-                      type="radio"
-                      name="role"
-                      value={r.value}
-                      checked={role === r.value}
-                      onChange={() => setRole(r.value)}
-                      className="mt-0.5"
-                    />
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{r.label}</p>
-                      <p className="text-xs text-muted-foreground">{r.desc}</p>
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                {Object.entries(grouped).map(([category, items]) => (
+                  <div key={category}>
+                    <p className="onto-label mb-1 capitalize">{category}</p>
+                    <div className="space-y-1.5">
+                      {items.map((r) => (
+                        <label key={r.key} className="flex items-start gap-3 cursor-pointer group">
+                          <input
+                            type="radio"
+                            name="role"
+                            value={r.key}
+                            checked={role === r.key}
+                            onChange={() => setRole(r.key)}
+                            className="mt-0.5"
+                          />
+                          <div>
+                            <p className="text-sm font-medium text-foreground">{r.label}</p>
+                            <p className="text-xs text-muted-foreground">{r.description}</p>
+                          </div>
+                        </label>
+                      ))}
                     </div>
-                  </label>
+                  </div>
                 ))}
               </div>
             </div>

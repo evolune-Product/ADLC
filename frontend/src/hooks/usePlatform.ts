@@ -11,8 +11,8 @@ import api, { getApiError } from '@/lib/api'
 import type {
   AgentScore, AnalyticsPoint, AnalyticsSummary, ApiKeyRecord, ApprovalPolicy,
   BacklogTicket, BillingState, DeploymentRecord, MemoryHit, MemoryStatus, Notification,
-  NotificationSettings, Plan, ReviewResult, SourceReadResult, SprintPlan, Template, WebhookDelivery, WebhookRecord,
-  ComplianceControl, EngineeringPulse,
+  NotificationSettings, Plan, PaymentGateway, ReviewResult, SourceReadResult, SprintPlan, Template,
+  WebhookDelivery, WebhookRecord, ComplianceControl, EngineeringPulse,
 } from '@/types/platform'
 
 const err = (fallback: string) => (e: unknown) => toast.error(getApiError(e, fallback))
@@ -34,14 +34,23 @@ export function usePlans() {
   })
 }
 
+/**
+ * Start checkout on a chosen gateway. All three — Stripe, Razorpay, PayPal —
+ * return the same shape: a URL to redirect to (a hosted checkout/approval
+ * page) and whether the gateway was actually configured or the plan was just
+ * applied directly. Because every gateway hands back a redirect URL rather
+ * than needing its own JS SDK embedded in the page, this one hook drives all
+ * three — there is no Razorpay checkout.js or PayPal Buttons script anywhere
+ * in this app.
+ */
 export function useCheckout() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (plan: string) =>
-      api.post('/billing/checkout', { plan }).then((r) => r.data),
+    mutationFn: ({ plan, gateway = 'stripe' }: { plan: string; gateway?: PaymentGateway }) =>
+      api.post('/billing/checkout', { plan, gateway }).then((r) => r.data),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['billing'] })
-      if (data.simulated) toast.success('Plan updated (Stripe not configured — applied directly)')
+      if (data.simulated) toast.success('Plan updated — this gateway isn’t configured, so it was applied directly')
       else window.location.href = data.url
     },
     onError: err('Could not start checkout'),
@@ -56,6 +65,24 @@ export function useBillingPortal() {
       else toast.info('Billing portal is unavailable without Stripe configured')
     },
     onError: err('Could not open the billing portal'),
+  })
+}
+
+/**
+ * Cancel the active subscription regardless of which gateway it is billed
+ * through. Stripe subscribers should generally prefer the portal (it also
+ * handles payment-method updates); this is the only option for Razorpay and
+ * PayPal, which have no hosted self-serve portal to redirect to.
+ */
+export function useCancelSubscription() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post('/billing/cancel').then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['billing'] })
+      toast.success('Subscription canceled')
+    },
+    onError: err('Could not cancel the subscription'),
   })
 }
 

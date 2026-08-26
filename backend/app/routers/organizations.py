@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.services import org_roles
 from app.models.organization import Organization, OrgMember, OrgInvitation, SsoConnection
 from app.models.user import User
 from app.routers.auth import get_current_user
@@ -168,6 +169,20 @@ def list_orgs(
     return result
 
 
+@router.get("/roles")
+def list_roles():
+    """
+    The role catalogue — label, description and category for every role a
+    member can be invited as. Public to any authenticated user, not just
+    admins: someone deciding *which* role to ask for needs to read the
+    descriptions before they can ask.
+
+    Registered before `/{org_id}` so FastAPI matches the literal path
+    `/orgs/roles` rather than treating "roles" as an attempted UUID.
+    """
+    return {"roles": org_roles.catalog()}
+
+
 @router.get("/{org_id}", response_model=OrgOut)
 def get_org(
     org_id: uuid.UUID,
@@ -237,15 +252,20 @@ def update_member_role(
     current_user: User = Depends(get_current_user),
 ):
     actor = _require_admin(org_id, current_user, db)
+    if body.role not in org_roles.INVITABLE_ROLES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{body.role}' is not an assignable role. Choose one from GET /orgs/roles.",
+        )
     target = _get_member(org_id, target_user_id, db)
     if not target:
         raise HTTPException(status_code=404, detail="Member not found")
     # Owner cannot be demoted by anyone except themselves transferring ownership
     if target.role == "owner":
         raise HTTPException(status_code=403, detail="Cannot change the owner's role; transfer ownership first")
-    # Admin cannot promote to owner
-    if body.role == "owner":
-        raise HTTPException(status_code=403, detail="Cannot assign owner role via this endpoint")
+    # Admin cannot promote to owner — ownership moves by transfer, never by a
+    # role assignment, so "owner" is deliberately excluded from INVITABLE_ROLES
+    # and this check is really just documentation of why that 422 fires above.
     # Admin cannot update another admin (only owner can)
     if actor.role == "admin" and target.role == "admin":
         raise HTTPException(status_code=403, detail="Admins cannot modify other admins")
@@ -299,6 +319,11 @@ def create_invitation(
     current_user: User = Depends(get_current_user),
 ):
     _require_admin(org_id, current_user, db)
+    if body.role not in org_roles.INVITABLE_ROLES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"'{body.role}' is not an invitable role. Choose one from GET /orgs/roles.",
+        )
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")

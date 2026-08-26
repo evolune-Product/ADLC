@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models.project import Project
 from app.schemas.project import ProjectCreate, ProjectUpdate, ProjectOut
 from app.routers.auth import get_current_user
-from app.routers._helpers import get_optional_org, owner_filter, OrgContext
+from app.routers._helpers import OrgContext, can_write, get_optional_org, is_domain_admin, owner_filter
 from app.models.user import User
 
 router = APIRouter()
@@ -73,7 +73,7 @@ def create_project(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot create resources")
     p = Project(
         user_id=current_user.id,
@@ -113,7 +113,7 @@ def update_project(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot update resources")
     p = _get_project(project_id, current_user, db, org_ctx)
 
@@ -137,7 +137,7 @@ def delete_project(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role not in ("owner", "admin"):
+    if org_ctx and not is_domain_admin(org_ctx, "engineering"):
         raise HTTPException(status_code=403, detail="Admin or owner access required to delete")
     p = _get_project(project_id, current_user, db, org_ctx)
     db.delete(p)
@@ -151,7 +151,7 @@ def archive_project(
     current_user: User = Depends(get_current_user),
     org_ctx: Optional[OrgContext] = Depends(get_optional_org),
 ):
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(status_code=403, detail="Viewers cannot update resources")
     p = _get_project(project_id, current_user, db, org_ctx)
     p.status = "archived"

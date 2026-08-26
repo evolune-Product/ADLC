@@ -26,7 +26,7 @@ from app.models.catalog import MarketplaceInstall, MarketplaceListing, Template
 from app.models.pod import Pod, PodAgent
 from app.models.skill import Skill
 from app.models.user import User
-from app.routers._helpers import OrgContext, get_optional_org, owner_filter
+from app.routers._helpers import OrgContext, can_write, get_optional_org, is_domain_admin, owner_filter
 from app.routers.auth import get_current_user
 
 router = APIRouter()
@@ -183,7 +183,7 @@ def install_template(
     runnable pipeline.
     """
     ensure_builtins(db)
-    if org_ctx and org_ctx.role == "viewer":
+    if org_ctx and not can_write(org_ctx):
         raise HTTPException(403, "Viewers cannot install templates")
 
     tpl = db.query(Template).filter(Template.slug == slug).first()

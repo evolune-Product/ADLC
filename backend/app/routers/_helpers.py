@@ -23,6 +23,13 @@ owner_filter
 get_or_404
     Fetches a user-owned or org-owned DB record by id.
     Raises HTTP 404 if not found.
+
+can_write / is_domain_admin
+    The two access checks every router actually uses in practice. Backed by
+    the role catalogue in `app/services/org_roles.py` — see that module for
+    why access needs two independent checks (can this role write at all? does
+    it administer *this* domain?) rather than the single rank ordering
+    `require_org_role` below still offers for anything that still wants it.
 """
 
 import uuid
@@ -35,9 +42,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.routers.auth import get_current_user
+from app.services import org_roles
 
 T = TypeVar("T")
 
+# Legacy numeric ordering. `require_org_role` below is the only consumer, and
+# nothing in this codebase actually calls `require_org_role` — every real gate
+# uses `can_write` / `is_domain_admin` instead, which express things a single
+# rank cannot (a billing manager outranks nobody and administers one domain).
+# Kept for API completeness rather than deleted out from under any caller a
+# future router might add.
 _ROLE_RANK = {"viewer": 0, "member": 1, "admin": 2, "owner": 3}
 
 
@@ -104,6 +118,35 @@ def require_org_role(min_role: str):
             )
         return org_ctx
     return _dep
+
+
+def can_write(org_ctx: Optional["OrgContext"]) -> bool:
+    """
+    Whether the caller may create or change anything at all.
+
+    `None` (no `X-Org-ID` header — the personal-workspace path) always passes:
+    a solo user is never restricted from their own resources. Inside an org,
+    this is the single check every former `org_ctx.role == "viewer"` site in
+    the codebase now makes — and because it is a set membership test against
+    the role catalogue rather than a literal string comparison, a new
+    read-only role (auditor, client_guest) is blocked here automatically
+    without every call site needing to be told about it individually.
+    """
+    return org_roles.can_write(org_ctx.role if org_ctx else None)
+
+
+def is_domain_admin(org_ctx: Optional["OrgContext"], domain: str) -> bool:
+    """
+    Whether the caller administers `domain` — the string a router declares for
+    itself, e.g. `"engineering"` or `"billing"` — in this org.
+
+    Replaces the old `org_ctx.role not in ("owner", "admin")` literal. Owner
+    and admin still pass for every domain (they carry `domains == "*"` in the
+    registry); a specialist role like `engineering_lead` or `billing_manager`
+    passes only for the one domain it was actually given, which is the entire
+    point of having specialist roles rather than a second flavour of admin.
+    """
+    return org_roles.is_domain_admin(org_ctx.role if org_ctx else None, domain)
 
 
 def owner_filter(model: Type[T], current_user, org_ctx: Optional[OrgContext]):

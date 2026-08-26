@@ -3,9 +3,14 @@ from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
-
-OrgRole = Literal['owner', 'admin', 'member', 'viewer']
-InviteRole = Literal['admin', 'member', 'viewer']
+# The role list is no longer a hardcoded Literal — it is the catalogue in
+# `app/services/org_roles.py`, which is why these are `str` here rather than a
+# closed type. A `Literal` would need editing here every time a role is added;
+# the actual validation (is this a real, invitable role?) happens in the
+# router against `org_roles.INVITABLE_ROLES`, which is the single source of
+# truth the DB CHECK constraint is also generated from.
+OrgRole = str
+InviteRole = str
 InviteStatus = Literal['pending', 'accepted', 'expired', 'revoked']
 
 

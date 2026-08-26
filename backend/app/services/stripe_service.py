@@ -71,6 +71,22 @@ def create_checkout_session(*, plan: str, owner_key: str, email: str | None,
     return {"url": session.url, "session_id": session.id, "simulated": False}
 
 
+def cancel_subscription(subscription_id: str) -> dict:
+    """
+    Cancel at period end, not immediately — a customer who cancels still paid
+    for the current period and should keep what they paid for. Exists so
+    `/billing/cancel` has a gateway-symmetric action for a Stripe subscriber
+    who somehow has no `stripe_customer_id` on file to build a portal session
+    from (the normal path is still the portal, which also handles payment
+    method updates this does not).
+    """
+    if not is_configured() or subscription_id.startswith("sim_"):
+        return {"status": "canceled", "simulated": True}
+    stripe = _client()
+    sub = stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
+    return {"status": sub.status, "cancel_at_period_end": True, "simulated": False}
+
+
 def create_portal_session(customer_id: str) -> dict:
     if not is_configured():
         return {"url": f"{settings.frontend_url}/billing?simulated=1", "simulated": True}

@@ -22,12 +22,39 @@ class Settings(BaseSettings):
     embedding_base_url: str = ""
     embedding_model: str = "text-embedding-3-small"
 
-    # Billing (optional — the platform runs without Stripe configured)
+    # Billing (optional — the platform runs without any of these configured;
+    # each gateway degrades to a simulated checkout independently, so a
+    # deployment can enable Stripe only, Razorpay only, all three, or none).
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
     stripe_price_team: str = ""
     stripe_price_growth: str = ""
     stripe_price_enterprise: str = ""
+
+    # Razorpay — the India rail. UPI/cards/netbanking domestically, bank
+    # transfer internationally, both cheaper than a card network for a rupee-
+    # priced customer. Subscriptions API, not one-off orders: a plan id per
+    # tier must exist in the Razorpay dashboard (or be created via their API)
+    # before checkout works, the same precondition Stripe already has for
+    # price ids.
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+    razorpay_webhook_secret: str = ""
+    razorpay_plan_team: str = ""
+    razorpay_plan_growth: str = ""
+    razorpay_plan_enterprise: str = ""
+
+    # PayPal — the rail for a buyer with no corporate card program but a PayPal
+    # business account, common outside the US/EU card networks. Subscriptions
+    # v1, sandbox by default so a misconfigured deployment cannot accidentally
+    # take a live charge.
+    paypal_client_id: str = ""
+    paypal_client_secret: str = ""
+    paypal_webhook_id: str = ""
+    paypal_mode: str = "sandbox"        # sandbox | live
+    paypal_plan_team: str = ""
+    paypal_plan_growth: str = ""
+    paypal_plan_enterprise: str = ""
 
     # Email (SMTP — works with SES/Postmark/Resend/corporate relay)
     smtp_host: str = ""
