@@ -48,6 +48,11 @@ MAX_TIMEOUT_S = 60.0
 MAX_RETRIES = 5
 MAX_RESPONSE_BYTES = 64 * 1024  # 64KB, per spec — avoid a runaway response
 
+# auth_types the schema accepts (see app/models/company_api.py::AUTH_TYPES)
+# minus the ones with no implemented flow yet. The router validates a create/
+# update against this set so 'oauth2' fails loudly at creation, not on first call.
+SUPPORTED_AUTH_TYPES = {"none", "api_key", "bearer", "basic"}
+
 
 class CompanyApiError(RuntimeError):
     """Raised for any condition that should stop the call before it reaches
