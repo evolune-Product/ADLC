@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, DateTime, ForeignKey, func
+from sqlalchemy import CheckConstraint, Index, String, Text, Integer, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
@@ -51,13 +51,37 @@ class RunStep(Base):
 
 
 class Approval(Base):
+    """
+    The one real approval-record table in the platform.
+
+    Company OS steps 17-18 extend this to cover a workflow `approval` node's
+    real per-approver records, rather than inventing a second Approval-shaped
+    table: `run_id` is now nullable and `execution_id` (nullable, pointing at
+    `workflow_executions`) is new. A CHECK enforces exactly one of the two is
+    set, so `Approval.run_id`-scoped queries used by `policy_service.evaluate_deploy`
+    for the existing deploy gate are completely unaffected — every pre-existing
+    row already has run_id set and execution_id NULL. See
+    `policy_service.evaluate_workflow_approval` for the workflow-node reader of
+    the execution_id-scoped rows.
+    """
     __tablename__ = "approvals"
+    __table_args__ = (
+        CheckConstraint(
+            "(run_id IS NOT NULL AND execution_id IS NULL) OR (run_id IS NULL AND execution_id IS NOT NULL)",
+            name="approvals_one_target_check",
+        ),
+        Index("ix_approvals_execution", "execution_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("runs.id", ondelete="CASCADE"))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("runs.id", ondelete="CASCADE"), nullable=True)
+    execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflow_executions.id", ondelete="CASCADE"), nullable=True
+    )
     reviewer_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"))
     decision: Mapped[str | None] = mapped_column(String(50))
     comment: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     run = relationship("Run", back_populates="approvals")
+    execution = relationship("WorkflowExecution")

@@ -17,6 +17,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.models.connection import Connection
@@ -248,3 +249,120 @@ def remember_outcome(db: Session, project_id: uuid.UUID, *, run_id, title: str, 
     db.commit()
     db.refresh(chunk)
     return chunk
+
+
+# ── Company OS step 14: Company > Department > Team > Project hierarchy ───────
+#
+# `remember_outcome` and the /projects/:id/memory/notes endpoint stay exactly
+# as they were — every existing call site keeps working unchanged. These two
+# functions are the department/team/org-level siblings, sharing the same
+# storage (MemoryChunk rows, JSONB embeddings) and the same cosine-similarity
+# retrieval — no second memory system.
+
+def write_note(db: Session, *, organization_id: uuid.UUID | None = None,
+                department_id: uuid.UUID | None = None, team_id: uuid.UUID | None = None,
+                project_id: uuid.UUID | None = None, title: str, content: str,
+                kind: str = "convention") -> MemoryChunk:
+    """
+    Human-authored memory at any single level of the hierarchy. Exactly one of
+    organization_id/department_id/team_id/project_id should be the chunk's own
+    scope (the DB CHECK constraint requires at least one); organization_id is
+    additionally always set alongside department_id/team_id/project_id when the
+    caller has it, purely so a company-wide query can filter by org without a
+    join — see `retrieve_hierarchical`.
+    """
+    if not any([organization_id, department_id, team_id, project_id]):
+        raise ValueError("write_note requires at least one of organization_id/department_id/team_id/project_id")
+    vec = embedding_service.embed(f"{title}\n{content}")
+    chunk = MemoryChunk(
+        organization_id=organization_id, department_id=department_id,
+        team_id=team_id, project_id=project_id,
+        kind=kind, title=title, content=content,
+        embedding=vec, tokens=max(1, len(content) // 4),
+    )
+    db.add(chunk)
+    db.commit()
+    db.refresh(chunk)
+    return chunk
+
+
+def _hierarchy_query(db: Session, *, organization_id, department_id, team_id, project_id):
+    """
+    The chunk sets visible at this scope, broadest to narrowest.
+
+    Retrieving for a Team also sees Company- and Department-level chunks
+    (broader context is always visible to a narrower query); retrieving for
+    the Company does NOT see Team- or Department-level chunks (narrower
+    context — e.g. one team's private notes — is not automatically surfaced to
+    a company-wide search). Concretely: a scope is included only when the
+    request explicitly named it or something narrower than it.
+
+    Authorization is unchanged from before this function existed: every
+    caller (routers) still scopes `organization_id` from the caller's
+    `OrgContext`/project ownership before this runs, so this function can
+    never be handed a tenant it should not see — it only decides which of
+    *that* tenant's own chunks are broad enough to be in scope.
+    """
+    filters = []
+    # Company-level chunks (no department/team/project of their own) are
+    # visible to every query scoped to this org, at any depth.
+    if organization_id is not None:
+        filters.append(and_(
+            MemoryChunk.organization_id == organization_id,
+            MemoryChunk.department_id.is_(None),
+            MemoryChunk.team_id.is_(None),
+            MemoryChunk.project_id.is_(None),
+        ))
+    # Department-level chunks are visible when the query names that
+    # department directly, or names a team/project underneath it.
+    if department_id is not None:
+        filters.append(and_(
+            MemoryChunk.department_id == department_id,
+            MemoryChunk.team_id.is_(None),
+            MemoryChunk.project_id.is_(None),
+        ))
+    if team_id is not None:
+        filters.append(MemoryChunk.team_id == team_id)
+    if project_id is not None:
+        filters.append(MemoryChunk.project_id == project_id)
+
+    if not filters:
+        return db.query(MemoryChunk).filter(False)
+    return db.query(MemoryChunk).filter(or_(*filters))
+
+
+def retrieve_hierarchical(db: Session, *, organization_id: uuid.UUID | None = None,
+                           department_id: uuid.UUID | None = None, team_id: uuid.UUID | None = None,
+                           project_id: uuid.UUID | None = None, query: str, k: int = 6,
+                           max_chars: int = 9000) -> list[MemoryChunk]:
+    """
+    Hierarchy-aware sibling of `retrieve`. Same cosine-similarity ranking and
+    budget logic; the only difference is which rows are eligible in the first
+    place — see `_hierarchy_query`. `retrieve` itself is untouched and still
+    used everywhere a plain project-only lookup is correct.
+    """
+    chunks = _hierarchy_query(
+        db, organization_id=organization_id, department_id=department_id,
+        team_id=team_id, project_id=project_id,
+    ).all()
+    if not chunks:
+        return []
+
+    qvec = embedding_service.embed(query)
+    scored = sorted(
+        ((embedding_service.cosine(qvec, c.embedding or []), c) for c in chunks),
+        key=lambda pair: pair[0],
+        reverse=True,
+    )
+
+    picked, used = [], 0
+    for score, chunk in scored:
+        if score <= 0:
+            break
+        if used + len(chunk.content) > max_chars:
+            continue
+        picked.append(chunk)
+        used += len(chunk.content)
+        if len(picked) >= k:
+            break
+    return picked
