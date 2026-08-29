@@ -113,6 +113,13 @@ def create_team(
         db.rollback()
         raise HTTPException(status_code=409, detail="Team slug collision, retry")
     db.refresh(team)
+
+    try:
+        from app.services import workspace_bridge
+        workspace_bridge.channel_for_team(db, team, created_by=current_user.id)
+    except Exception:
+        pass
+
     return team
 
 

@@ -92,6 +92,16 @@ def create_department(
     db.add(dept)
     db.commit()
     db.refresh(dept)
+
+    # Best-effort, same convention as every other chat-surface touchpoint in
+    # this codebase (see workspace_bridge.py's module docstring): a channel
+    # creation failure must never fail department creation.
+    try:
+        from app.services import workspace_bridge
+        workspace_bridge.channel_for_department(db, dept, created_by=current_user.id)
+    except Exception:
+        pass
+
     return dept
 
 

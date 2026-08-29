@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.department import Department
 from app.models.memory import MemoryChunk, MemoryIndex
 from app.models.project import Project
 from app.models.user import User
@@ -178,3 +179,144 @@ def clear_memory(
     if idx:
         idx.status, idx.chunk_count, idx.file_count = "pending", 0, 0
     db.commit()
+
+
+# ── Company OS step 14: Company / Department knowledge ─────────────────────
+#
+# Mirrors the /projects/:id/memory/notes shape exactly (same NoteBody, same
+# storage — a MemoryChunk row, same embedding call) one and two levels up the
+# org chart, rather than inventing a second knowledge system. No new storage
+# mechanism: like the project notes endpoint, this is DB-stored text with a
+# JSONB embedding, not a document upload feature.
+
+def _require_org(org_ctx: Optional[OrgContext]) -> OrgContext:
+    if org_ctx is None:
+        raise HTTPException(400, "This action requires an org context (X-Org-ID header)")
+    return org_ctx
+
+
+def _assert_department(db: Session, org_ctx: OrgContext, department_id: uuid.UUID) -> Department:
+    dept = db.query(Department).filter(
+        Department.id == department_id, Department.organization_id == org_ctx.org_id,
+    ).first()
+    if not dept:
+        raise HTTPException(404, "Department not found")
+    return dept
+
+
+@router.post("/departments/{department_id}/knowledge/notes", status_code=201)
+def add_department_note(
+    department_id: uuid.UUID,
+    body: NoteBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    ctx = _require_org(org_ctx)
+    if not can_write(ctx):
+        raise HTTPException(403, "Read-only role cannot add department knowledge")
+    _assert_department(db, ctx, department_id)
+    chunk = memory_service.write_note(
+        db, organization_id=ctx.org_id, department_id=department_id,
+        title=body.title, content=body.content, kind=body.kind,
+    )
+    return {"id": str(chunk.id), "kind": chunk.kind, "title": chunk.title}
+
+
+@router.get("/departments/{department_id}/knowledge/chunks")
+def list_department_chunks(
+    department_id: uuid.UUID,
+    limit: int = Query(100, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    ctx = _require_org(org_ctx)
+    _assert_department(db, ctx, department_id)
+    rows = (
+        db.query(MemoryChunk)
+        .filter(MemoryChunk.department_id == department_id)
+        .order_by(MemoryChunk.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {"id": str(c.id), "kind": c.kind, "title": c.title, "tokens": c.tokens,
+         "updated_at": c.updated_at.isoformat() if c.updated_at else None}
+        for c in rows
+    ]
+
+
+@router.post("/departments/{department_id}/knowledge/search")
+def search_department_knowledge(
+    department_id: uuid.UUID,
+    body: SearchBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    """Hierarchy-aware: also returns company-level chunks (never team/project ones)."""
+    ctx = _require_org(org_ctx)
+    _assert_department(db, ctx, department_id)
+    chunks = memory_service.retrieve_hierarchical(
+        db, organization_id=ctx.org_id, department_id=department_id,
+        query=body.query, k=min(body.k, 20),
+    )
+    return [
+        {"id": str(c.id), "kind": c.kind, "title": c.title, "scope": _scope_label(c),
+         "excerpt": c.content[:600] + ("…" if len(c.content) > 600 else "")}
+        for c in chunks
+    ]
+
+
+@router.post("/orgs/{org_id}/knowledge/notes", status_code=201)
+def add_company_note(
+    org_id: uuid.UUID,
+    body: NoteBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    ctx = _require_org(org_ctx)
+    if str(ctx.org_id) != str(org_id):
+        raise HTTPException(403, "X-Org-ID does not match the org in the URL")
+    if not can_write(ctx):
+        raise HTTPException(403, "Read-only role cannot add company knowledge")
+    chunk = memory_service.write_note(
+        db, organization_id=org_id, title=body.title, content=body.content, kind=body.kind,
+    )
+    return {"id": str(chunk.id), "kind": chunk.kind, "title": chunk.title}
+
+
+@router.post("/orgs/{org_id}/knowledge/search")
+def search_company_knowledge(
+    org_id: uuid.UUID,
+    body: SearchBody,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    """
+    Company-wide search. Deliberately narrower-scope-blind: only chunks with
+    no department/team/project of their own come back here — a company-wide
+    search agent must never accidentally surface one team's private notes.
+    """
+    ctx = _require_org(org_ctx)
+    if str(ctx.org_id) != str(org_id):
+        raise HTTPException(403, "X-Org-ID does not match the org in the URL")
+    chunks = memory_service.retrieve_hierarchical(db, organization_id=org_id, query=body.query, k=min(body.k, 20))
+    return [
+        {"id": str(c.id), "kind": c.kind, "title": c.title,
+         "excerpt": c.content[:600] + ("…" if len(c.content) > 600 else "")}
+        for c in chunks
+    ]
+
+
+def _scope_label(c: MemoryChunk) -> str:
+    if c.project_id:
+        return "project"
+    if c.team_id:
+        return "team"
+    if c.department_id:
+        return "department"
+    return "company"
