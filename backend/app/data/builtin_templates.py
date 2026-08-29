@@ -478,6 +478,91 @@ POD_TEMPLATES: list[dict] = [
 ]
 
 
+# ── Company templates — Company OS step 22 ─────────────────────────────────
+#
+# A fourth Template.kind (the column is a bare String(20), no CHECK/enum, so
+# adding a value needed no migration). Installing one creates a real set of
+# Departments plus a starter Workflow — via the exact same
+# department_service.unique_department_slug + Department()/Workflow() calls
+# the departments/workflows routers use, not fake preview data. Two starter
+# templates only, per this session's scope — see ADLC_PROJECT_OVERVIEW.md for
+# why the other five from the original spec wishlist (Web3 Startup,
+# E-commerce, ...) are documented future work following this same pattern
+# rather than crammed in here.
+#
+# `workflows[].department` names a department in THIS template's own
+# `departments` list (matched by name at install time, not a slug — the
+# department doesn't have an id yet when the template is authored). A
+# starter workflow's `definition` follows the exact node-graph shape
+# `workflow_engine.py` executes; these are deliberately minimal (a
+# human_task node) rather than agent_task nodes wired to agents the company
+# hasn't created yet.
+COMPANY_TEMPLATES: list[dict] = [
+    {
+        "slug": "software-startup",
+        "name": "Software Startup",
+        "category": "company",
+        "tags": ["startup", "software"],
+        "description": "Engineering, Sales and Marketing departments, plus a starter intake workflow for new feature requests.",
+        "payload": {
+            "departments": [
+                {"name": "Engineering", "description": "Builds and ships the product."},
+                {"name": "Sales", "description": "Closes new business."},
+                {"name": "Marketing", "description": "Generates and nurtures demand."},
+            ],
+            "workflows": [
+                {
+                    "name": "Feature Request Intake",
+                    "department": "Engineering",
+                    "description": "New feature requests land here for triage before they become work.",
+                    "definition": {
+                        "start_node_id": "trigger",
+                        "nodes": [
+                            {"id": "trigger", "type": "trigger", "next": "triage"},
+                            {"id": "triage", "type": "human_task",
+                             "config": {"title": "Triage new feature request"}, "next": "done"},
+                            {"id": "done", "type": "completion"},
+                        ],
+                    },
+                },
+            ],
+        },
+    },
+    {
+        "slug": "digital-agency",
+        "name": "Digital Agency",
+        "category": "company",
+        "tags": ["startup", "agency", "services"],
+        "description": "Client Services, Delivery and Operations departments, plus a starter client-onboarding workflow.",
+        "payload": {
+            "departments": [
+                {"name": "Client Services", "description": "Owns the client relationship."},
+                {"name": "Delivery", "description": "Does the work clients pay for."},
+                {"name": "Operations", "description": "Keeps the agency running."},
+            ],
+            "workflows": [
+                {
+                    "name": "Client Onboarding",
+                    "department": "Client Services",
+                    "description": "A new client's kickoff, from signed contract to a Delivery handoff.",
+                    "definition": {
+                        "start_node_id": "trigger",
+                        "nodes": [
+                            {"id": "trigger", "type": "trigger", "next": "kickoff"},
+                            {"id": "kickoff", "type": "human_task",
+                             "config": {"title": "Run client kickoff call"}, "next": "handoff"},
+                            {"id": "handoff", "type": "human_task",
+                             "config": {"title": "Hand off to Delivery"}, "next": "done"},
+                            {"id": "done", "type": "completion"},
+                        ],
+                    },
+                },
+            ],
+        },
+    },
+]
+
+
 def all_templates() -> list[dict]:
     """Flatten to the shape the Template table stores."""
     out: list[dict] = []
@@ -499,5 +584,11 @@ def all_templates() -> list[dict]:
             "kind": "pod", "slug": p["slug"], "name": p["name"],
             "description": p["description"], "category": p["category"],
             "tags": [p["category"]], "payload": p["payload"],
+        })
+    for c in COMPANY_TEMPLATES:
+        out.append({
+            "kind": "company", "slug": c["slug"], "name": c["name"],
+            "description": c["description"], "category": c["category"],
+            "tags": c.get("tags", []), "payload": c["payload"],
         })
     return out

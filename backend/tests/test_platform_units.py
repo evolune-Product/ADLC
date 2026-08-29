@@ -267,9 +267,11 @@ class TestTemplateLibrary:
         slugs = [t["slug"] for t in all_templates()]
         assert len(slugs) == len(set(slugs))
 
-    def test_all_three_kinds_are_present(self):
+    def test_all_four_kinds_are_present(self):
+        # 'company' added Company OS step 22 — starter Department/Workflow
+        # bundles, alongside the original skill/agent/pod trio.
         kinds = {t["kind"] for t in all_templates()}
-        assert kinds == {"skill", "agent", "pod"}
+        assert kinds == {"skill", "agent", "pod", "company"}
 
     def test_every_skill_has_real_content(self):
         for t in all_templates():
