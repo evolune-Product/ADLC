@@ -531,6 +531,179 @@ class TestMcpServer:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Company OS, steps 10-13 — agent scoping, tool grants, BYO API registry, MCP
+#
+# Deliberately DB-free via a minimal fake Session (mirrors the style of the
+# rest of this file): these pin the two invariants that matter most —
+# default-open-until-scoped access control, and the SSRF guard on a
+# customer-configured outbound call.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class _FakeQuery:
+    """Just enough of the SQLAlchemy Query surface for the functions under
+    test: .filter() chains and terminates in .all()/.first()."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return list(self._rows)
+
+    def first(self):
+        return self._rows[0] if self._rows else None
+
+
+class _FakeSession:
+    """Maps a model class to the rows `db.query(Model)` should return —
+    enough for can_use_tool() and call_endpoint()'s straight-line lookups."""
+
+    def __init__(self, rows_by_model: dict):
+        self._rows_by_model = rows_by_model
+
+    def query(self, model):
+        return _FakeQuery(self._rows_by_model.get(model, []))
+
+
+class TestToolGrantAuthorization:
+    def test_default_open_when_no_grants_exist(self):
+        from app.services.tool_grants import can_use_tool
+        db = _FakeSession({})
+        assert can_use_tool(db, "org-1", plugin_key="github", agent_id="agent-1") is True
+
+    def test_becomes_an_allow_list_once_any_grant_exists(self):
+        from app.models.integration import ToolGrant
+        from app.services.tool_grants import can_use_tool
+
+        granted = types.SimpleNamespace(grantee_type="agent", grantee_id="agent-1")
+        db = _FakeSession({ToolGrant: [granted]})
+
+        assert can_use_tool(db, "org-1", plugin_key="github", agent_id="agent-1") is True
+        assert can_use_tool(db, "org-1", plugin_key="github", agent_id="agent-2") is False
+
+    def test_requires_exactly_one_target(self):
+        from app.services.tool_grants import can_use_tool
+        db = _FakeSession({})
+        with pytest.raises(ValueError):
+            can_use_tool(db, "org-1")
+
+
+class TestCompanyApiSsrfGuard:
+    """`call_endpoint` must reuse reader_service's resolved-IP SSRF guard —
+    the same regression class `TestSourceReaderUrlSafety` covers for the
+    source reader, applied here to the BYO API caller."""
+
+    def _api(self, base_url, **overrides):
+        defaults = dict(
+            id="api-1", organization_id="org-1", name="internal", description=None,
+            base_url=base_url, auth_type="none", auth_config={}, default_headers=None,
+            timeout_seconds=20, retry_count=0, status="active",
+        )
+        defaults.update(overrides)
+        return types.SimpleNamespace(**defaults)
+
+    def _endpoint(self, company_api_id="api-1"):
+        return types.SimpleNamespace(
+            id="ep-1", company_api_id=company_api_id, name="ping",
+            path="/", method="GET",
+        )
+
+    @pytest.mark.parametrize("target", [
+        "http://127.0.0.1/",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://10.0.0.5/internal",
+    ])
+    def test_private_targets_are_rejected(self, target, monkeypatch):
+        from app.config import settings
+        from app.models.company_api import CompanyApi, CompanyApiEndpoint
+        from app.services import company_api_service as svc
+
+        monkeypatch.setattr(settings, "deployment_mode", "cloud")
+        db = _FakeSession({
+            CompanyApi: [self._api(target)],
+            CompanyApiEndpoint: [self._endpoint()],
+        })
+
+        with pytest.raises(svc.CompanyApiError, match="non-public address|Could not resolve"):
+            svc.call_endpoint(db, "api-1", "ep-1", "org-1")
+
+    def test_self_hosted_mode_skips_the_guard_but_still_normalizes_scheme(self, monkeypatch):
+        """self_hosted deliberately turns the guard off — the internal host is
+        the point — but a non-http(s) scheme must still be refused."""
+        from app.config import settings
+        from app.models.company_api import CompanyApi, CompanyApiEndpoint
+        from app.services import company_api_service as svc
+
+        monkeypatch.setattr(settings, "deployment_mode", "self_hosted")
+        db = _FakeSession({
+            CompanyApi: [self._api("file:///etc/passwd")],
+            CompanyApiEndpoint: [self._endpoint()],
+        })
+
+        with pytest.raises(svc.CompanyApiError, match="Unsupported scheme"):
+            svc.call_endpoint(db, "api-1", "ep-1", "org-1")
+
+    def test_disabled_api_is_refused_before_any_network_call(self):
+        from app.models.company_api import CompanyApi, CompanyApiEndpoint
+        from app.services import company_api_service as svc
+
+        db = _FakeSession({
+            CompanyApi: [self._api("https://api.example.com", status="disabled")],
+            CompanyApiEndpoint: [self._endpoint()],
+        })
+        with pytest.raises(svc.CompanyApiError, match="disabled"):
+            svc.call_endpoint(db, "api-1", "ep-1", "org-1")
+
+    def test_oauth2_auth_type_fails_loudly_rather_than_sending_unauthenticated(self, monkeypatch):
+        """self_hosted mode here only to skip the (network-dependent) DNS
+        resolution the SSRF guard needs — the assertion under test is that
+        oauth2 is refused, not that the guard ran."""
+        from app.config import settings
+        from app.models.company_api import CompanyApi, CompanyApiEndpoint
+        from app.services import company_api_service as svc
+
+        monkeypatch.setattr(settings, "deployment_mode", "self_hosted")
+        db = _FakeSession({
+            CompanyApi: [self._api("https://api.example.com", auth_type="oauth2")],
+            CompanyApiEndpoint: [self._endpoint()],
+        })
+        with pytest.raises(svc.CompanyApiError, match="oauth2"):
+            svc.call_endpoint(db, "api-1", "ep-1", "org-1")
+
+
+class TestMcpCompanyOsTools:
+    def test_workflows_execute_is_not_an_approval_scope(self):
+        """Same invariant as start_run/approve_run: a key that can execute a
+        workflow must not thereby gain approval authority. A workflow that
+        reaches an approval node still gates through Work's own status
+        machine, not through this tool."""
+        from app.routers import mcp
+        by_name = {t["name"]: t["scope"] for t in mcp.TOOLS}
+        assert by_name["execute_workflow"] == "workflows:execute"
+        assert by_name["execute_workflow"] != by_name.get("approve_run")
+        assert "workflows:approve" not in {t["scope"] for t in mcp.TOOLS}
+
+    def test_execute_workflow_description_warns_about_approval_gates(self):
+        from app.routers import mcp
+        text = next(t for t in mcp.TOOLS if t["name"] == "execute_workflow")["description"].lower()
+        assert "approval" in text
+        assert "no approval authority" in text or "grants no approval" in text
+
+    def test_new_company_os_tools_all_have_handlers(self):
+        from app.routers import mcp
+        for name in ("list_work", "create_work", "list_departments", "list_workflows", "execute_workflow"):
+            assert name in mcp.HANDLERS
+            assert name in mcp._BY_NAME
+
+    def test_new_scopes_are_registered_in_the_api_key_catalogue(self):
+        from app.routers.governance import API_KEY_SCOPES
+        for scope in ("work:read", "work:write", "departments:read", "workflows:read", "workflows:execute"):
+            assert scope in API_KEY_SCOPES
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Ticket write-back
 #
 # The invariant under test is not "does it post a comment" — that needs a real
