@@ -1624,3 +1624,179 @@ class TestGatewaySimulatedFallback:
         from app.services import paypal_service
         with pytest.raises(ValueError):
             paypal_service.create_subscription(plan="free", owner_key="org:1", email=None)
+
+
+# ═══ Company OS foundation ═════════════════════════════════════════════════════
+
+class TestWorkStatusTransitions:
+    """`work_service` is the single source of truth for which Work status
+    moves are legal, deliberately DB-free the same way `policy_service`'s
+    scoring is — a bad transition (completed -> new) must be caught by a pure
+    function a test can exercise directly, not discovered by an integration
+    test hitting Postgres."""
+
+    def test_new_to_assigned_is_valid(self):
+        from app.services import work_service
+        assert work_service.apply_transition("new", "assigned") == "assigned"
+
+    def test_completed_is_terminal(self):
+        from app.services import work_service
+        with pytest.raises(work_service.InvalidTransition):
+            work_service.apply_transition("completed", "new")
+
+    def test_cancelled_is_terminal(self):
+        from app.services import work_service
+        with pytest.raises(work_service.InvalidTransition):
+            work_service.apply_transition("cancelled", "in_progress")
+
+    def test_failed_can_be_retried(self):
+        from app.services import work_service
+        assert work_service.apply_transition("failed", "assigned") == "assigned"
+
+    def test_same_status_is_a_no_op_not_an_error(self):
+        from app.services import work_service
+        assert work_service.apply_transition("in_progress", "in_progress") == "in_progress"
+
+    def test_unknown_target_status_rejected(self):
+        from app.services import work_service
+        with pytest.raises(ValueError):
+            work_service.apply_transition("new", "not_a_real_status")
+
+    def test_every_status_in_the_transition_graph_is_a_known_status(self):
+        from app.models.work import VALID_TRANSITIONS, WORK_STATUSES
+        for current, targets in VALID_TRANSITIONS.items():
+            assert current in WORK_STATUSES
+            for t in targets:
+                assert t in WORK_STATUSES
+
+    def test_terminal_states_have_no_outgoing_edges_except_failed(self):
+        from app.models.work import VALID_TRANSITIONS
+        assert VALID_TRANSITIONS["completed"] == ()
+        assert VALID_TRANSITIONS["cancelled"] == ()
+
+
+class TestDepartmentTeamSlugs:
+    """Department/Team slugs are generated server-side from `name` the same
+    way organizations.py::_make_slug already works — never client-supplied,
+    so two departments named "Sales" in one org collide at the DB layer and
+    the service resolves it, not the caller."""
+
+    def test_slugify_lowercases_and_hyphenates(self):
+        from app.models.department import slugify
+        assert slugify("Customer Success") == "customer-success"
+
+    def test_slugify_strips_punctuation(self):
+        from app.models.department import slugify
+        assert slugify("R&D / Ops!!") == "r-d-ops"
+
+    def test_slugify_never_returns_empty(self):
+        from app.models.department import slugify
+        assert slugify("   ") == "item"
+
+    def test_slugify_collapses_repeated_separators(self):
+        from app.models.department import slugify
+        assert slugify("A---B") == "a-b"
+
+
+class TestCompanyOsRoleCatalogue:
+    """department_head / team_lead / agent extend the existing org_roles
+    registry in place — same two-axis shape (can_write + domains) every other
+    role uses, so they must behave like ordinary write-capable, non-domain-
+    admin roles everywhere `can_write`/`is_domain_admin` are already tested."""
+
+    def test_new_roles_are_registered(self):
+        from app.services import org_roles
+        for key in ("department_head", "team_lead", "agent"):
+            assert key in org_roles.ALL_KEYS
+            assert org_roles.get(key) is not None
+
+    def test_new_roles_can_write(self):
+        from app.services import org_roles
+        for key in ("department_head", "team_lead", "agent"):
+            assert org_roles.can_write(key) is True
+
+    def test_new_roles_are_not_full_admins(self):
+        from app.services import org_roles
+        for key in ("department_head", "team_lead", "agent"):
+            assert key not in org_roles.FULL_ADMIN_ROLES
+            assert org_roles.is_domain_admin(key, "engineering") is False
+            assert org_roles.is_domain_admin(key, "billing") is False
+
+    def test_agent_role_is_not_invitable(self):
+        """An agent is granted this role programmatically when registered as
+        an org member, never through the email-invitation flow a human uses —
+        the same reasoning that keeps 'owner' out of INVITABLE_ROLES."""
+        from app.services import org_roles
+        assert "agent" not in org_roles.INVITABLE_ROLES
+
+    def test_department_head_and_team_lead_are_invitable(self):
+        from app.services import org_roles
+        assert "department_head" in org_roles.INVITABLE_ROLES
+        assert "team_lead" in org_roles.INVITABLE_ROLES
+
+    def test_existing_nine_roles_unchanged(self):
+        """Backward compatibility is the whole promise of an additive
+        registry change — every original role keeps exactly the access it
+        had before these three were appended."""
+        from app.services import org_roles
+        original = {
+            "owner": (True, "*"), "admin": (True, "*"),
+            "engineering_lead": (True, {"engineering"}),
+            "billing_manager": (True, {"billing"}),
+            "member": (True, set()), "reviewer": (True, set()),
+            "auditor": (False, set()), "viewer": (False, set()),
+            "client_guest": (False, set()),
+        }
+        for key, (can_write, domains) in original.items():
+            spec = org_roles.get(key)
+            assert spec["can_write"] is can_write
+            assert spec["domains"] == domains
+
+
+class TestDepartmentTeamHelpers:
+    """`is_department_head` / `is_team_lead` in routers/_helpers.py — same
+    fail-closed shape as `is_domain_admin`: nobody passes by accident, an
+    org admin always passes, and `None` org_ctx (personal workspace) always
+    passes since there is no department structure to be denied by."""
+
+    def test_none_org_ctx_always_passes(self):
+        from app.routers._helpers import is_department_head, is_team_lead
+        assert is_department_head(None, db_stub(), uuid_stub(), uuid_stub()) is True
+        assert is_team_lead(None, db_stub(), uuid_stub(), uuid_stub()) is True
+
+    def test_owner_and_admin_always_pass(self):
+        from app.routers._helpers import OrgContext, is_department_head, is_team_lead
+        for role in ("owner", "admin"):
+            ctx = OrgContext(org_id=uuid_stub(), org_name="Acme", role=role, user_id=uuid_stub())
+            assert is_department_head(ctx, db_stub(), uuid_stub(), uuid_stub()) is True
+            assert is_team_lead(ctx, db_stub(), uuid_stub(), uuid_stub()) is True
+
+    def test_ordinary_member_does_not_pass_with_no_department_row(self):
+        from app.routers._helpers import OrgContext, is_department_head
+        ctx = OrgContext(org_id=uuid_stub(), org_name="Acme", role="member", user_id=uuid_stub())
+        assert is_department_head(ctx, db_stub(), uuid_stub(), uuid_stub()) is False
+
+
+def uuid_stub():
+    import uuid
+    return uuid.uuid4()
+
+
+def db_stub():
+    """A minimal stand-in for a SQLAlchemy Session whose .query(...).filter(...).first()
+    chain always resolves to None — enough for the `None org_ctx` / `owner-admin`
+    fast paths in is_department_head/is_team_lead, which return before ever
+    touching the db argument's query() method for those particular cases, and
+    a plain None result otherwise (no department/team row exists for a random
+    UUID), matching what a real, empty table would return."""
+    class _Query:
+        def filter(self, *a, **kw):
+            return self
+        def first(self):
+            return None
+
+    class _Db:
+        def query(self, *a, **kw):
+            return _Query()
+
+    return _Db()
