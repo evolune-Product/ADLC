@@ -1335,11 +1335,220 @@ enough that `httpx` directly was the right call, the same choice
 `jira_service.py` already made — one more Python package is not worth it for
 Basic-auth-plus-JSON.
 
+## Company OS (steps 1-24, merged into `master`)
+
+A second product surface layered onto the SDLC platform, built across
+multiple sessions on branch `company-os-foundation` and merged into `master`
+once all 24 steps passed 323/323 backend tests, a real migration
+upgrade/downgrade cycle, and an end-to-end browser walkthrough (register →
+onboard → create departments → submit work from the Desk → create and
+execute a workflow) with zero console or network errors. The pitch:
+everything Phases 1-12 built assumes the org's only
+"work" is a Jira/Linear ticket flowing through the engineering pipeline. Most
+of a real company's work — a sales request, a support escalation, an HR
+process, a finance approval — has no ticket and no pipeline. Company OS gives
+every department the same governed, agent-eligible structure engineering
+already had, without touching the engineering path at all.
+
+### The shape of it (steps 1-13, prior sessions)
+
+```
+app/models/       organization.py (company-profile fields), department.py
+                   (Department, Team, TeamMember), work.py (Work — the
+                   generic non-engineering request), workflow.py (Workflow,
+                   WorkflowExecution, WorkflowExecutionStep), company_api.py
+                   (CompanyApi, CompanyApiEndpoint), integration.py
+                   (ToolGrant), memory.py (org_id/department_id/team_id scope
+                   columns, extending the project-level hierarchy)
+app/services/      department_service, work_service, routing_service,
+                   workflow_engine, company_api_service, tool_grants,
+                   policy_service (workflow-approval extension)
+app/routers/       departments, teams, work, desk, workflows, company_apis,
+                   tool_grants
+frontend/src/pages/ desk/DeskPage.tsx, workflows/{Workflows,NewWorkflow,
+                   WorkflowDetail}Page.tsx
+```
+
+Org roles gained two axes (`can_write` / `is_domain_admin`, see
+"Organisation Roles" above) specifically so a department head or team lead
+could be a real access-control concept, not just a label. `Work` is
+deliberately not `Ticket` and does not import it — see `models/work.py`'s
+own docstring for why the two coexist rather than one absorbing the other.
+`workflow_engine.py` is a small linear/branching node-graph walker
+(`trigger → human_task/approval → agent_task → api_call → condition →
+transform → notification → delay → completion`), explicitly not a general
+DAG scheduler — `webhook` and `sub_workflow` nodes are recognized and
+stored but raise a loud `NotImplementedError` rather than faking support.
+
+`CompanyApi` is the BYO integration registry — a customer points the
+platform at their own internal API, and `ToolGrant` (step 11) is the
+allow-list deciding which agent/department/team/workflow may call it,
+default-open until an org actually scopes it (see `app/services/
+tool_grants.py`). `company_api_service.call_endpoint` is the one place that
+makes the outbound call, reusing `reader_service._assert_public_url` for
+SSRF (private/loopback/link-local/reserved addresses refused by resolved
+IP, deployment-mode gated exactly like `plugin_verify`).
+
+Chat, memory and approval policy got the same Company > Department > Team >
+Project hierarchy extension (steps 14-18): `memory_service` resolves scope
+from most-specific to least (Project → Team → Department → Company),
+`workspace_bridge` narrates workflow events into department/team channels
+the same way run events narrate into project channels, and
+`policy_service.evaluate_workflow_approval` gives a workflow `approval` node
+an opt-in richer path (`ApprovalPolicy.min_approvers`/`approver_roles`)
+alongside the always-available Work-status fallback — see that function's
+own docstring for exactly which parts of the spec's policy vocabulary are
+real (min_approvers, approver_roles) versus explicitly deferred (monetary
+thresholds, risk-level rules, more condition types).
+
+### Steps 19-24 (this session — closes out the 24-step plan)
+
+**19 — Unified audit timeline.** `AuditMiddleware` only ever saw "an HTTP
+mutation happened"; it cannot see what a workflow execution does across
+several node types inside one `advance()` call, or what an approval-policy
+decision was, or whether a `CompanyApi` endpoint was actually invoked (as
+opposed to merely checked against the ToolGrant allow-list). A new
+`app/services/audit_service.py` writes to the *same* `audit_logs` table —
+not a parallel mechanism — from three call sites the middleware structurally
+cannot reach: `workflow_engine.py` (execution started/completed/failed,
+awaiting_approval/awaiting_human_task, agent_task/api_call node runs),
+`policy_service.evaluate_workflow_approval` (the allow/deny/require_approval
+decision, wrapped around the function's existing three return branches so it
+fires exactly once), and `company_api_service.call_endpoint` (only on an
+actual outbound call that was made, after authorization passed — not on
+every `can_use_tool` eligibility check). `AuditLog` gained nullable
+`org_id`/`department_id`/`team_id` columns (migration
+`d0e1f2a3b4c5`); `AuditMiddleware` now populates `org_id` from the
+`X-Org-ID` header it already reads for nothing else. `GET /audit/timeline`
+is the richer-filtered sibling of `GET /audit` (department, team, an end as
+well as a start of the date range) reading the identical table — one query
+surface, not two the frontend has to merge. Verified with a real script
+against Postgres (not a stub test): a two-node workflow execution produces
+real `workflow_execution.started`/`.completed` rows tagged with the correct
+`org_id`.
+
+**20 — Company home dashboard.** `GET /company-dashboard`
+(`app/routers/company_dashboard.py`) answers "how is the company doing" —
+deliberately a different question from Desk ("what needs me right now") and
+from Pulse (delivery-flow bottlenecks); see `CompanyDashboardPage.tsx`'s
+docstring for the same separation-of-concerns reasoning `PulsePage.tsx`
+already established. Every number is a real aggregate: `Work`/
+`WorkflowExecution` status counts, pending approvals (real query across
+both), agent activity (`WorkflowExecutionStep` rows where
+`node_type='agent_task'`, last 30 days), per-workflow success/failure rates,
+`CompanyApi` status counts, the caller's 5 most recent messages (via
+`workspace_service.visible_channels_filter`), and usage/billing reusing
+`metering_service.check_quota(...).as_dict()` verbatim — zero invented
+numbers, zero parallel cost ledger. Role-scoped through the exact
+`is_domain_admin`/`Department.head_user_id` patterns already established:
+owner/admin see the whole org, a department head sees only departments they
+head, everyone else sees only Work/Workflows they requested, are assigned,
+or created. Verified against real Postgres.
+
+**21 — Onboarding.** `frontend/src/pages/onboarding/OnboardingPage.tsx` is
+pure composition — org creation (`useCreateOrg`), the company-profile PUT
+(`useUpdateOrg`, extended with `industry`/`company_size`/`description`),
+department creation (`useCreateDepartment`, a genuinely new hook — no
+frontend consumer of `departments.py` existed before this session despite
+the backend router existing since step 1), the *existing*
+`InviteMemberModal`, and a link out to `/plugins` rather than rebuilding
+plugin connection. No new backend endpoint was needed; that was verified by
+reading each router before writing the page, not assumed. `RegisterPage`
+now routes a freshly-registered user (who always has zero orgs) into
+`/onboarding` instead of straight to `/dashboard`; step 1 offers "skip and
+work solo" at every step, so the pre-existing personal-workspace path (no
+org at all) is unchanged for anyone who chooses it.
+
+**22 — Company templates.** `Template.kind` gained a fourth value,
+`"company"` (the column was always a bare `String(20)`, no CHECK/enum, so
+this needed no migration). `COMPANY_TEMPLATES` in
+`app/data/builtin_templates.py` ships two starter templates — **Software
+Startup** (Engineering/Sales/Marketing + a feature-intake workflow) and
+**Digital Agency** (Client Services/Delivery/Operations + a client-onboarding
+workflow) — deliberately not all seven from the original spec wishlist (SaaS
+Startup, Web3 Startup, E-commerce, ...); the other five are straightforward
+future work following the exact same `{departments: [...], workflows:
+[...]}` payload shape. `catalog.py::_install_company` installs by calling
+the real `Department`/`Workflow` constructors and `unique_department_slug`
+the departments/workflows routers themselves use — not fake preview data —
+and is idempotent against department names that already exist in the org
+(installing a second company template into the same org reuses rather than
+duplicates an "Engineering" department). Verified against real Postgres:
+installing "Software Startup" creates exactly the 3 departments and 1
+workflow the payload declares.
+
+**23 — Marketplace evolution.** No new code beyond wiring the new kind
+through: `browse_marketplace(kind="company")` and `list_templates(kind=
+"company")` already worked with zero changes, because both were written
+generically over `Template.kind` from the start. `ensure_builtins()` seeds a
+`MarketplaceListing` for every built-in template kind identically, so the two
+company templates appear in `GET /marketplace` the same way a built-in skill
+does. Verified live rather than assumed.
+
+**24 — Security hardening pass (review, not new features).** Read the code
+end to end rather than assuming:
+  - *Multi-tenant isolation*: spot-checked `work.py`, `departments.py`,
+    `company_apis.py` and `workflows.py` — every query filters on
+    `organization_id == org_ctx.org_id` from the `OrgContext` dependency,
+    never a bare `user_id` or a client-supplied org id. No fix needed.
+  - *Secret handling*: `CompanyApi.auth_config` is masked by
+    `_mask_auth_config` on both create and list — verified live against
+    Postgres with a real bearer token, confirmed absent from both response
+    bodies (only `{"token": null, "token_set": true}` comes back). No fix
+    needed.
+  - *SSRF*: `company_api_service.call_endpoint` is still the only call path
+    into a `CompanyApi`'s `base_url` (the workflow engine's `api_call` node
+    goes through it, nothing bypasses it), and `_guard`/
+    `_assert_public_url` runs on every call. No fix needed.
+  - *Rate limiting*: grepped the whole backend (`ratelimit`, `rate_limit`,
+    `slowapi`, `throttle`) — nothing exists anywhere in this codebase, on
+    any surface, old or new. Documented here as a **pre-existing,
+    whole-product gap**, not newly introduced by Company OS; rate-limiting
+    only the new endpoints while every Phase 1-12 endpoint stays unlimited
+    would be inconsistent and was correctly out of scope for a hardening
+    pass on one feature area.
+  - *Audit completeness*: proved with a real script against Postgres (see
+    step 19) rather than asserted — a workflow execution genuinely produces
+    audit rows with the right `org_id`.
+
+### Migrations (steps 19-24)
+
+```
+d0e1f2a3b4c5_audit_timeline_company_dashboard.py   ← audit_logs.org_id/
+                                                        department_id/team_id
+```
+Tested both directions (`alembic upgrade head` / `downgrade -1` /
+`upgrade head` again) against the real `adlc_companyos` Postgres database.
+
+### What Company OS still doesn't do
+
+- AI-assisted routing (`routing_service.route_work` is a plain name-match
+  against department names — see its own docstring)
+- `webhook` and `sub_workflow` workflow node types (loud `NotImplementedError`,
+  not a silent no-op — see `workflow_engine.py`'s module docstring)
+- The full spec section-18 policy-condition vocabulary: monetary thresholds,
+  risk-level rules, department/team/user/agent/environment/action-type
+  conditions (only `min_approvers`/`approver_roles` are real)
+- SAML SSO / SCIM (same pre-existing gap named under "Enterprise Identity"
+  above — OIDC only)
+- The other five company template types from the original spec wishlist
+  (SaaS Startup, Web3 Startup, E-commerce, Marketing Agency, Consulting Firm)
+- Fine-grained per-agent MCP tool attachment (MCP scoping today is
+  org/department/team-level via `ToolGrant`, not "this specific agent may
+  call this specific MCP tool and no other")
+- Any form of rate limiting, anywhere in the product (pre-existing gap, not
+  introduced or fixed by this branch — see step 24 above)
+- Marketplace creator payouts for `kind="company"` listings (same
+  pre-existing gap named under "What Still Isn't Built" below, now also true
+  for the new kind)
+
+---
+
 ## What Still Isn't Built (Phase 12+)
 
 - SAML SSO and SCIM directory provisioning (OIDC SSO **is** built — see above)
 - Marketplace creator payouts (listings support pricing; no payout flow)
-- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 223 pytest unit tests)
+- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 323 pytest unit tests)
 - Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
 - MinIO skill file storage (skills still save `md_content` direct to DB)
 - Reviewer suggestion for GitLab merge requests (GitHub only today)

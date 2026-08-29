@@ -1335,11 +1335,15 @@ enough that `httpx` directly was the right call, the same choice
 `jira_service.py` already made — one more Python package is not worth it for
 Basic-auth-plus-JSON.
 
-## Company OS (branch `company-os-foundation`, steps 1-24)
+## Company OS (steps 1-24, merged into `master`)
 
 A second product surface layered onto the SDLC platform, built across
-multiple sessions on a long-lived feature branch (never merged into
-`master`). The pitch: everything Phases 1-12 built assumes the org's only
+multiple sessions on branch `company-os-foundation` and merged into `master`
+once all 24 steps passed 323/323 backend tests, a real migration
+upgrade/downgrade cycle, and an end-to-end browser walkthrough (register →
+onboard → create departments → submit work from the Desk → create and
+execute a workflow) with zero console or network errors. The pitch:
+everything Phases 1-12 built assumes the org's only
 "work" is a Jira/Linear ticket flowing through the engineering pipeline. Most
 of a real company's work — a sales request, a support escalation, an HR
 process, a finance approval — has no ticket and no pipeline. Company OS gives
@@ -1544,7 +1548,7 @@ Tested both directions (`alembic upgrade head` / `downgrade -1` /
 
 - SAML SSO and SCIM directory provisioning (OIDC SSO **is** built — see above)
 - Marketplace creator payouts (listings support pricing; no payout flow)
-- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 223 pytest unit tests)
+- Vitest/a test runner for the VS Code extension, and for the frontend (backend has 323 pytest unit tests)
 - Incremental memory re-indexing on diff (currently full re-index, 400-file cap)
 - MinIO skill file storage (skills still save `md_content` direct to DB)
 - Reviewer suggestion for GitLab merge requests (GitHub only today)
