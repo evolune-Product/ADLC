@@ -40,48 +40,29 @@ PLANS: dict[str, dict] = {
         "features": ["1 project", "25 runs/mo", "BYO LLM key", "community skills"],
         "requires_byo_key": True,
     },
-    "team": {
-        "name": "Team",
-        "price_cents": 19900,
-        "included_runs": 250,
-        "overage_cents_per_run": 60,
-        "seats": 10,
-        "max_projects": 10,
-        "run_budget_cents": 200,
-        "features": [
-            "10 seats", "250 runs/mo", "Reviewer agent", "Approval policies",
-            "Slack + email alerts", "ROI dashboard", "Audit export",
-        ],
-    },
-    "growth": {
-        "name": "Growth",
-        "price_cents": 69900,
-        "included_runs": 1000,
-        "overage_cents_per_run": 45,
-        "seats": 30,
-        "max_projects": 0,               # 0 = unlimited
-        "run_budget_cents": 400,
-        "features": [
-            "30 seats", "1,000 runs/mo", "Codebase memory", "Marketplace",
-            "Multi-env pipelines", "API + webhooks", "SSO",
-        ],
-    },
     "enterprise": {
         "name": "Enterprise",
-        "price_cents": 350000,
+        "price_cents": 500000,
         "included_runs": 0,              # 0 = unlimited
         "overage_cents_per_run": 0,
-        "seats": 0,
+        "seats": 25,
         "max_projects": 0,
         "run_budget_cents": 0,           # governed by policy, not plan
         "features": [
-            "Unlimited seats + runs", "Self-hosted / VPC", "BYO LLM",
-            "SAML SSO + SCIM", "2-approver policies", "Evidence export", "SLA + CSM",
+            "25 seats, unlimited runs", "Self-hosted / VPC", "BYO LLM",
+            # OIDC only — SAML and SCIM are not built (see sso_service.py and
+            # /security). Do not restate this as "SAML SSO" here; that string
+            # used to ship straight to the in-app Billing page via
+            # GET /billing/plans while /security and Trust.tsx correctly
+            # disclosed the gap, so a paying customer's own billing page
+            # promised something the rest of the product admitted it didn't do.
+            "OIDC SSO (Okta, Entra ID, Google Workspace, Auth0)",
+            "2-approver policies", "Evidence export", "SLA + CSM",
         ],
     },
 }
 
-PLAN_ORDER = ["free", "team", "growth", "enterprise"]
+PLAN_ORDER = ["free", "enterprise"]
 
 
 @dataclass

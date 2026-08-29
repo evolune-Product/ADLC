@@ -129,8 +129,14 @@ PLUGINS: list[dict] = [
         "setup_url": "https://id.atlassian.com/manage-profile/security/api-tokens",
         "capabilities": ["Sync issues", "Comment on issues", "Transition status",
                          "Read linked documents"],
+        # Jira Cloud's own quirk, not a wrong-credential signal: a freshly
+        # created site or newly minted API token can answer /myself with 202
+        # (Accepted) for a short window while Atlassian finishes propagating
+        # the account's permissions, before settling on 200. Treating only
+        # [200, 201, 204] as success (the plugin_verify default) marked a
+        # perfectly valid brand-new connection as "error".
         "verify": {"url": "{base}/rest/api/3/myself", "auth": "basic",
-                   "name_path": "displayName"},
+                   "name_path": "displayName", "ok": [200, 201, 202, 204]},
     },
     {
         "key": "linear", "label": "Linear", "category": "tracker", "depth": NATIVE,

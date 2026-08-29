@@ -19,6 +19,12 @@ export default function NewOrgPage() {
       toast.success('Organization created')
       window.location.href = '/dashboard'
     } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 402) {
+        toast.error('Creating an organization requires an Enterprise plan. Redirecting to billing…')
+        navigate('/billing')
+        return
+      }
       toast.error(getApiError(err))
     }
   }

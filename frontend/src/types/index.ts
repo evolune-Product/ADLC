@@ -53,7 +53,11 @@ export interface User {
 }
 
 // ─── Connections ─────────────────────────────────────────────────────────────
-export type ConnectionType = 'github' | 'gitlab' | 'jira' | 'github_actions'
+// Any key from the plugin catalogue (backend/app/services/plugins.py) — not a
+// closed set. Connections and the former Plugins page are merged into one
+// surface, so a connection's type is whatever catalogue entry created it:
+// github/gitlab/jira/linear plus ~30 others (slack, datadog, stripe, ...).
+export type ConnectionType = string
 export type ConnectionStatus = 'pending' | 'connected' | 'error'
 
 export interface Connection {
@@ -147,6 +151,8 @@ export interface Project {
   repo_name?: string
   jira_connection_id?: string
   jira_project_key?: string
+  /** "jira" | "github" | "gitlab" — github/gitlab reuse repo_connection_id. */
+  ticket_source: string
   pod_id?: string
   pod_name?: string
   context_md?: string

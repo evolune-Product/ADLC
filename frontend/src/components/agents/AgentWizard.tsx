@@ -134,23 +134,25 @@ export function AgentWizard({ initial, onSave, loading }: Props) {
       {/* ── Step 1: Basic Info ── */}
       {step === 0 && (
         <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label>Agent Name *</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Backend Dev Agent" />
-          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label>Agent Name *</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Backend Dev Agent" />
+            </div>
 
-          <div className="space-y-1.5">
-            <Label>Role *</Label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            >
-              <option value="">-- Select role --</option>
-              {ROLES.map((r) => (
-                <option key={r.value} value={r.value}>{r.label}</option>
-              ))}
-            </select>
+            <div className="space-y-1.5">
+              <Label>Role *</Label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="">-- Select role --</option>
+                {ROLES.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="space-y-1.5">

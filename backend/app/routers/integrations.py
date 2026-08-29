@@ -1,7 +1,5 @@
 """
-Integrations router — model providers and plugins.
-
-Two catalogues and the credentials that go with them:
+Integrations router — model providers, plus the read side of the plugin catalogue.
 
     GET    /providers                          the model-provider catalogue
     GET    /providers/credentials              what this workspace has stored (masked)
@@ -9,9 +7,17 @@ Two catalogues and the credentials that go with them:
     DELETE /providers/credentials/{provider}   remove one
     POST   /providers/credentials/{provider}/test   prove it works, for real
 
-    GET    /plugins                            the plugin catalogue
-    POST   /plugins/{key}/connect              connect one, verifying as it saves
-    POST   /plugins/connections/{id}/verify    re-check an existing connection
+    GET    /plugins                            the plugin catalogue, annotated
+                                                with what's already connected
+
+Connecting and re-verifying a plugin used to live here too
+(`POST /plugins/{key}/connect`, `POST /plugins/connections/{id}/verify`) — both
+moved to `app/routers/connections.py`, which writes into the same `Connection`
+table this endpoint reads from. Two "create a connection" endpoints was the
+actual bug the Connections/Plugins split caused: GitLab and Linear worked
+correctly through this router's verifier but not through the older Connections
+one. Now there's one path for both. `GET /plugins` stays here because it's a
+read of the catalogue for the connect-gallery UI, not a mutation.
 
 Secrets go in and never come out. Every response carries `masked_hint`
 (`sk-ant-…9f2a`) so someone can confirm *which* key is installed; no endpoint
@@ -19,7 +25,6 @@ returns the key itself, in any form, to anyone, including the person who set it.
 """
 from __future__ import annotations
 
-import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -34,7 +39,7 @@ from app.models.integration import ModelCredential, mask
 from app.models.user import User
 from app.routers._helpers import OrgContext, get_optional_org, is_domain_admin
 from app.routers.auth import get_current_user
-from app.services import llm_providers, llm_service, plugin_verify, plugins
+from app.services import llm_providers, llm_service, plugins
 from app.services.encryption import decrypt_token, encrypt_token
 
 router = APIRouter()
@@ -52,14 +57,6 @@ class CredentialBody(BaseModel):
     price_overrides: dict = Field(default_factory=dict)
 
 
-class ConnectBody(BaseModel):
-    name: str | None = None
-    token: str | None = None
-    url: str | None = None
-    user: str | None = None
-    extra: str | None = None
-
-
 def _require_billing_admin(org_ctx: Optional[OrgContext]) -> None:
     """
     A model-provider key is spending authority — whoever installs it can run
@@ -71,16 +68,6 @@ def _require_billing_admin(org_ctx: Optional[OrgContext]) -> None:
     if org_ctx and not is_domain_admin(org_ctx, "billing"):
         raise HTTPException(status_code=403,
                             detail="Only owners, admins and billing managers can manage model provider keys")
-
-
-def _require_engineering_admin(org_ctx: Optional[OrgContext]) -> None:
-    """A plugin token is access to a system the pipeline reads or writes —
-    GitHub, Jira, Slack. That is the engineering domain: an engineering lead
-    connects these without needing billing authority, and a billing manager
-    should not be the one wiring up the org's GitHub token."""
-    if org_ctx and not is_domain_admin(org_ctx, "engineering"):
-        raise HTTPException(status_code=403,
-                            detail="Only owners, admins and engineering leads can manage plugin connections")
 
 
 def _scope(current_user: User, org_ctx: Optional[OrgContext]):
@@ -341,122 +328,3 @@ def list_plugins(
 
     return {"groups": groups, "counts": plugins.counts(),
             "connected_count": len({c.type for c in connections})}
-
-
-@router.post("/plugins/{key}/connect", status_code=status.HTTP_201_CREATED)
-def connect_plugin(
-    key: str,
-    body: ConnectBody,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
-):
-    """
-    Connect a plugin, verifying the credential before it is saved as working.
-
-    A connection is always created — a credential that failed verification is
-    stored with `status="error"` and the vendor's reason attached, rather than
-    thrown away. Someone who pasted a token with one missing scope should be
-    able to fix the scope and re-verify, not retype the whole form.
-    """
-    _require_engineering_admin(org_ctx)
-
-    spec = plugins.get(key)
-    if not spec:
-        raise HTTPException(status_code=404, detail=f"Unknown plugin '{key}'")
-
-    if plugins.requires_token(key) and not body.token:
-        raise HTTPException(status_code=422,
-                            detail=f"{spec.get('token_label', 'Token')} is required")
-    if plugins.requires_url(key) and not body.url:
-        raise HTTPException(status_code=422,
-                            detail=f"{spec.get('url_label', 'URL')} is required")
-    if plugins.requires_user(key) and not body.user:
-        raise HTTPException(status_code=422,
-                            detail=f"{spec.get('user_label', 'Username')} is required")
-
-    result = plugin_verify.verify(key, token=body.token, url=body.url,
-                                  user=body.user, extra=body.extra)
-
-    metadata = {"depth": spec["depth"], "verified_detail": result.detail}
-    if result.display_name:
-        metadata["display_name"] = result.display_name
-    if body.user:
-        metadata["email"] = body.user
-    if body.extra:
-        metadata["extra"] = body.extra
-
-    conn = Connection(
-        user_id=current_user.id,
-        org_id=org_ctx.org_id if org_ctx else None,
-        name=body.name or spec["label"],
-        type=key,
-        status="connected" if result.ok else "error",
-        # A webhook URL is as much a secret as a token — anyone holding it can
-        # post into the channel — so it is encrypted the same way rather than
-        # left in the plaintext workspace_url column.
-        access_token=encrypt_token(body.token or body.url) if (body.token or spec["auth"] == plugins.AUTH_WEBHOOK) else None,
-        workspace_url=body.url if spec["auth"] != plugins.AUTH_WEBHOOK else None,
-        metadata_=metadata,
-    )
-    db.add(conn)
-    db.commit()
-    db.refresh(conn)
-
-    return {
-        "id": str(conn.id), "type": conn.type, "name": conn.name,
-        "status": conn.status, "verified": result.ok, "detail": result.detail,
-        "display_name": result.display_name,
-    }
-
-
-@router.post("/plugins/connections/{connection_id}/verify")
-def reverify_connection(
-    connection_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
-):
-    """Re-run the check. Tokens expire and get revoked; a status from three
-    months ago is not evidence the integration still works."""
-    scope = (
-        Connection.org_id == org_ctx.org_id if org_ctx
-        else and_(Connection.user_id == current_user.id, Connection.org_id.is_(None))
-    )
-    conn = db.query(Connection).filter(Connection.id == connection_id, scope).first()
-    if not conn:
-        raise HTTPException(status_code=404, detail="Connection not found")
-
-    spec = plugins.get(conn.type)
-    if not spec:
-        raise HTTPException(status_code=422,
-                            detail=f"'{conn.type}' is not a catalogue plugin")
-
-    secret = None
-    if conn.access_token:
-        try:
-            secret = decrypt_token(conn.access_token)
-        except Exception:
-            conn.status = "error"
-            db.commit()
-            raise HTTPException(status_code=500, detail="Stored credential could not be decrypted")
-
-    is_webhook = spec["auth"] == plugins.AUTH_WEBHOOK
-    result = plugin_verify.verify(
-        conn.type,
-        token=None if is_webhook else secret,
-        url=secret if is_webhook else conn.workspace_url,
-        user=(conn.metadata_ or {}).get("email"),
-        extra=(conn.metadata_ or {}).get("extra"),
-    )
-
-    conn.status = "connected" if result.ok else "error"
-    meta = dict(conn.metadata_ or {})
-    meta["verified_detail"] = result.detail
-    if result.display_name:
-        meta["display_name"] = result.display_name
-    conn.metadata_ = meta
-    db.commit()
-
-    return {"id": str(conn.id), "status": conn.status,
-            "verified": result.ok, "detail": result.detail}

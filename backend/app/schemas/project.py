@@ -17,6 +17,9 @@ class ProjectCreate(BaseModel):
     repo_name: Optional[str] = None
     jira_connection_id: Optional[uuid.UUID] = None
     jira_project_key: Optional[str] = None
+    # "jira" | "github" | "gitlab" — github/gitlab reuse repo_connection_id
+    # and repo_name, no separate tracker connection needed.
+    ticket_source: str = "jira"
     pod_id: Optional[uuid.UUID] = None
     context_md: Optional[str] = None
     deploy_targets: List[DeployTargetSchema] = []
@@ -30,6 +33,7 @@ class ProjectUpdate(BaseModel):
     repo_name: Optional[str] = None
     jira_connection_id: Optional[uuid.UUID] = None
     jira_project_key: Optional[str] = None
+    ticket_source: Optional[str] = None
     pod_id: Optional[uuid.UUID] = None
     context_md: Optional[str] = None
     deploy_targets: Optional[List[DeployTargetSchema]] = None
@@ -50,6 +54,7 @@ class ProjectOut(BaseModel):
     repo_name: Optional[str] = None
     jira_connection_id: Optional[uuid.UUID] = None
     jira_project_key: Optional[str] = None
+    ticket_source: str = "jira"
     pod_id: Optional[uuid.UUID] = None
     pod_name: Optional[str] = None
     context_md: Optional[str] = None

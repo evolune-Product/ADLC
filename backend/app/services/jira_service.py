@@ -3,6 +3,10 @@ import re
 import httpx
 
 
+class JiraError(RuntimeError):
+    pass
+
+
 def _headers(email: str, api_token: str) -> dict:
     creds = base64.b64encode(f"{email}:{api_token}".encode()).decode()
     return {"Authorization": f"Basic {creds}", "Accept": "application/json"}
@@ -36,18 +40,31 @@ def get_projects(workspace_url: str, email: str, api_token: str) -> list[dict]:
 
 
 def sync_tickets(workspace_url: str, email: str, api_token: str, project_key: str) -> list[dict]:
-    """Fetch up to 100 tickets from Jira for a given project key."""
+    """
+    Fetch up to 100 tickets from Jira for a given project key.
+
+    Atlassian removed GET /rest/api/3/search outright (HTTP 410, not a soft
+    deprecation) in favor of POST /rest/api/3/search/jql — the JQL and field
+    list move from query params into the JSON body, and pagination is
+    cursor-based (nextPageToken) instead of offset-based, though a single page
+    of up to 100 issues doesn't need to care about that here. The old
+    endpoint's error body has no "issues" key, so `data.get("issues", [])`
+    silently returned an empty list instead of raising — every sync quietly
+    "succeeded" with zero tickets and no indication anything was wrong.
+    """
     jql = f"project={project_key} ORDER BY updated DESC"
-    resp = httpx.get(
-        f"{workspace_url.rstrip('/')}/rest/api/3/search",
-        params={
+    resp = httpx.post(
+        f"{workspace_url.rstrip('/')}/rest/api/3/search/jql",
+        json={
             "jql": jql,
             "maxResults": 100,
-            "fields": "summary,description,issuetype,priority,status,assignee",
+            "fields": ["summary", "description", "issuetype", "priority", "status", "assignee"],
         },
-        headers=_headers(email, api_token),
+        headers={**_headers(email, api_token), "Content-Type": "application/json"},
         timeout=20,
     )
+    if resp.status_code >= 300:
+        raise JiraError(f"Jira returned {resp.status_code}: {resp.text[:300] or '(empty body)'}")
     data = resp.json()
     issues = data.get("issues", [])
     results = []

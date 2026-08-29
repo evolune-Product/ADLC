@@ -35,6 +35,7 @@ _ENTITY_PATTERNS: list[tuple[re.Pattern, str, str | None]] = [
     (re.compile(r"^/runs/[^/]+/cancel"),             "run",        "cancelled"),
     (re.compile(r"^/runs/[^/]+/retry"),              "run",        "retried"),
     (re.compile(r"^/runs"),                          "run",        None),
+    (re.compile(r"^/projects/[^/]+/tickets/[^/]+/close"), "ticket", "closed"),
     (re.compile(r"^/projects/[^/]+/tickets/[^/]+/sync"), "ticket", "synced"),
     (re.compile(r"^/projects/[^/]+/tickets"),        "ticket",     None),
     (re.compile(r"^/projects/[^/]+/archive"),        "project",    "archived"),

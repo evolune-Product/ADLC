@@ -5,7 +5,7 @@ import {
   FolderOpen, Play, ClipboardList, Settings, LogOut,
   Menu, X, Users, Building2,
   BarChart3, CreditCard, Shield, Store, Terminal, FileCheck,
-  MessagesSquare, Activity, Plug, KeyRound,
+  MessagesSquare, Activity, KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -29,7 +29,6 @@ const NAV = [
     group: 'Build',
     items: [
       { label: 'Connections', to: '/connections', icon: Link2 },
-      { label: 'Plugins',     to: '/plugins',     icon: Plug },
       { label: 'Skills',      to: '/skills',      icon: BookOpen },
       { label: 'Agents',      to: '/agents',      icon: Bot },
       { label: 'Pods',        to: '/pods',        icon: Layers },

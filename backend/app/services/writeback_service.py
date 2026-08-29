@@ -43,6 +43,10 @@ from app.services.encryption import decrypt_token
 
 log = logging.getLogger(__name__)
 
+
+class WritebackError(RuntimeError):
+    pass
+
 # Sensible defaults for the two workflows almost everyone actually uses. A
 # project can override any of them; an empty string means "do not move the
 # ticket at this milestone".
@@ -212,6 +216,48 @@ def on_failed(db: Session, run: Run, error: str | None) -> None:
     _emit(db, run, "failed",
           f"The agent run on this ticket failed and did not deploy.{detail}\n"
           f"{_run_link(run)}")
+
+
+def close_ticket(db: Session, project: Project, ticket: Ticket, *, closed_by: str,
+                 note: str | None = None, status: str = "Done") -> dict:
+    """
+    Explicit, human-triggered closure — independent of the passive write-back
+    opt-in (`project.writeback.enabled`). Someone clicking "Mark as Done"
+    after reviewing the work themselves is a deliberate act the platform
+    should always be able to perform when a tracker is connected, not a
+    milestone gated behind a setting meant for automatic run narration.
+
+    Returns {"commented": bool, "moved": bool}. Raises WritebackError if
+    neither succeeded — the person clicking the button needs to know nothing
+    actually happened, unlike the passive milestones above which can fail
+    silently because nobody is standing at a UI waiting on them.
+    """
+    connection = (
+        db.query(Connection).filter(Connection.id == project.jira_connection_id).first()
+        if project.jira_connection_id else None
+    )
+    if not connection or connection.status != "connected":
+        raise WritebackError("No connected issue-tracker connection is configured for this project")
+
+    provider = (connection.type or "").lower()
+    if provider not in ("jira", "linear"):
+        raise WritebackError(f"'{provider}' is not a supported issue tracker for write-back")
+
+    target = WritebackTarget(provider=provider, connection=connection, ticket=ticket,
+                             status_map={"closed": status})
+
+    body = f"Marked as **{status}** by {closed_by} via ADLC."
+    if note:
+        body += f'\n\n"{note.strip()}"'
+
+    commented = _post_comment(target, body)
+    moved = _move(target, "closed")
+
+    if not commented and not moved:
+        raise WritebackError(
+            f"Could not reach {provider.title()} to close this ticket — check that the connection still works."
+        )
+    return {"commented": commented, "moved": moved}
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────

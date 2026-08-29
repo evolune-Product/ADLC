@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 # The role list is no longer a hardcoded Literal — it is the catalogue in
@@ -56,6 +56,26 @@ class OrgMemberUpdate(BaseModel):
 class InvitationCreate(BaseModel):
     email: str
     role: InviteRole = "member"
+
+
+class BulkInvitationCreate(BaseModel):
+    # Capped at 200 — a company directory paste is realistically in the tens,
+    # and an unbounded list turns one request into an unbounded number of SMTP
+    # sends and DB writes.
+    emails: List[str] = Field(..., min_length=1, max_length=200)
+    role: InviteRole = "member"
+
+
+class BulkInvitationResult(BaseModel):
+    email: str
+    status: Literal['sent', 'already_member', 'invalid', 'seat_limit']
+    invite_url: Optional[str] = None
+
+
+class BulkInvitationOut(BaseModel):
+    results: List[BulkInvitationResult]
+    sent: int
+    skipped: int
 
 
 class InvitationOut(BaseModel):

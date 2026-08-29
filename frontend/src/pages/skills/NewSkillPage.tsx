@@ -10,7 +10,7 @@ export default function NewSkillPage() {
   const createMutation = useCreateSkill()
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" onClick={() => navigate('/skills')}>
           <ArrowLeft className="h-4 w-4 mr-1" />

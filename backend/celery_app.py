@@ -14,7 +14,17 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-    worker_pool="gevent",
+    # NOT gevent. Every DB call in this codebase goes through synchronous
+    # psycopg2 (via SQLAlchemy), and every external call (httpx, PyGithub, the
+    # Anthropic SDK) is blocking, plain-socket I/O too — none of it is
+    # gevent-monkey-patched. Under gevent's cooperative scheduler, psycopg2's
+    # blocking C-level socket read never yields, so the greenlet — and with it
+    # the whole worker — hangs forever on the very first query any task makes.
+    # Confirmed live: a task would log "received" and then nothing, ever,
+    # regardless of how fresh the worker process was. prefork (real OS
+    # processes) has none of this cooperative-scheduling gotcha and is
+    # Celery's own default for exactly this kind of synchronous workload.
+    worker_pool="prefork",
     # Data-retention enforcement: a documented policy nobody executes is an
     # audit finding, so the pruner runs on a schedule rather than on request.
     beat_schedule={

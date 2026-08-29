@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronDown, Building2, User, Plus, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useOrgStore } from '@/stores/orgStore'
-import { useOrgs } from '@/hooks/useOrgs'
+import { useOrgs, useCanCreateOrg } from '@/hooks/useOrgs'
 import type { Organization } from '@/types'
 
 export default function OrgSwitcher() {
@@ -11,6 +11,7 @@ export default function OrgSwitcher() {
   const navigate = useNavigate()
   const { activeOrg, setActiveOrg } = useOrgStore()
   const { data: orgs = [] } = useOrgs()
+  const { data: canCreate } = useCanCreateOrg()
 
   function switchTo(org: Organization | null) {
     setActiveOrg(org)
@@ -66,15 +67,17 @@ export default function OrgSwitcher() {
             </div>
           )}
 
-          <div className="border-t border-border">
-            <button
-              onClick={() => { setOpen(false); navigate('/org/new') }}
-              className="w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Create organization
-            </button>
-          </div>
+          {canCreate?.allowed && (
+            <div className="border-t border-border">
+              <button
+                onClick={() => { setOpen(false); navigate('/org/new') }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create organization
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

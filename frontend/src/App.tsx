@@ -48,7 +48,6 @@ import CompliancePage from '@/pages/governance/CompliancePage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
 import WorkspacePage from '@/pages/workspace/WorkspacePage'
 import ProvidersPage from '@/pages/settings/ProvidersPage'
-import PluginsPage from '@/pages/connections/PluginsPage'
 
 import NotFoundPage from '@/pages/NotFoundPage'
 
@@ -151,7 +150,10 @@ export default function App() {
             <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/connections" element={<ConnectionsPage />} />
-              <Route path="/plugins" element={<PluginsPage />} />
+              {/* /plugins merged into /connections — the old Plugins gallery
+                  is now what /connections renders. Redirect rather than 404
+                  anyone with the old URL bookmarked. */}
+              <Route path="/plugins" element={<Navigate to="/connections" replace />} />
               <Route path="/providers" element={<ProvidersPage />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/skills/new" element={<NewSkillPage />} />

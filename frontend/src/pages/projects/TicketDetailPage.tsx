@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Loader2, Play } from 'lucide-react'
+import { ArrowLeft, Check, ExternalLink, Loader2, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useTicket } from '@/hooks/useTickets'
+import { useCloseTicket, useTicket } from '@/hooks/useTickets'
 import { useProject } from '@/hooks/useProjects'
 import { useCreateRun } from '@/hooks/useRuns'
 
@@ -26,6 +26,7 @@ export default function TicketDetailPage() {
   const { data: project } = useProject(id!)
   const { data: ticket, isLoading } = useTicket(id!, ticketId!)
   const createRun = useCreateRun()
+  const closeTicket = useCloseTicket(id!)
 
   function handleRun() {
     if (!project?.pod_id) return
@@ -34,6 +35,16 @@ export default function TicketDetailPage() {
       { onSuccess: (run) => navigate(`/runs/${run.id}`) },
     )
   }
+
+  function handleClose() {
+    if (!ticket) return
+    if (!window.confirm(`Mark ${ticket.jira_id} as Done? This posts a comment and moves the ticket in your issue tracker.`)) {
+      return
+    }
+    closeTicket.mutate({ ticketId: ticket.id })
+  }
+
+  const isClosed = (ticket?.status || '').toLowerCase() === 'done'
 
   if (isLoading) {
     return (
@@ -125,6 +136,17 @@ export default function TicketDetailPage() {
             </a>
           </Button>
         )}
+        <Button
+          variant="outline"
+          onClick={handleClose}
+          disabled={isClosed || closeTicket.isPending}
+          title={isClosed ? 'Already marked Done' : 'Confirm the work is complete and close this ticket'}
+        >
+          {closeTicket.isPending
+            ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Closing…</>
+            : <><Check className="h-4 w-4 mr-2" /> {isClosed ? 'Closed' : 'Mark as Done'}</>
+          }
+        </Button>
       </div>
     </div>
   )

@@ -71,6 +71,27 @@ export function useInviteMember(orgId: string) {
   })
 }
 
+export interface BulkInviteResult {
+  email: string
+  status: 'sent' | 'already_member' | 'invalid' | 'seat_limit'
+  invite_url?: string
+}
+
+export interface BulkInviteResponse {
+  results: BulkInviteResult[]
+  sent: number
+  skipped: number
+}
+
+export function useBulkInviteMembers(orgId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { emails: string[]; role: InviteRole }) =>
+      api.post<BulkInviteResponse>(`/orgs/${orgId}/invitations/bulk`, data).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['org-invitations', orgId] }),
+  })
+}
+
 export function useRevokeInvite(orgId: string) {
   const qc = useQueryClient()
   return useMutation({
