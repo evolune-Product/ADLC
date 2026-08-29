@@ -87,6 +87,21 @@ def _user_id_from_request(request: Request) -> uuid.UUID | None:
         return None
 
 
+def _org_id_from_request(request: Request) -> uuid.UUID | None:
+    """Best-effort org tag for the row, from the same `X-Org-ID` header every
+    org-scoped router already requires. Not itself an authorization check —
+    a 2xx response on an org-scoped route already means `get_optional_org`
+    validated the caller is a member of this org; a non-org route simply
+    leaves this column null."""
+    raw = request.headers.get("x-org-id")
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(raw)
+    except ValueError:
+        return None
+
+
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
@@ -103,6 +118,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
 
         try:
             action, entity_type = _action_and_entity(request.method, path)
+            org_id = _org_id_from_request(request)
             db = SessionLocal()
             try:
                 db.add(AuditLog(
@@ -110,6 +126,7 @@ class AuditMiddleware(BaseHTTPMiddleware):
                     action=action,
                     entity_type=entity_type,
                     entity_id=_first_uuid_in_path(path),
+                    org_id=org_id,
                     metadata_={
                         "method": request.method,
                         "path":   path,

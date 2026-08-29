@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.models.governance import ApprovalPolicy
 from app.models.insight import ReviewFinding
 from app.models.run import Approval
+from app.services import audit_service
 
 SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
@@ -297,6 +298,160 @@ def check_concurrency(db: Session, *, project_id, org_id, policy: dict | None = 
 
     return ConcurrencyDecision(admitted=False, queued=True,
                                running=running, waiting=waiting, limit=limit)
+
+
+# ── Company OS steps 17-18: workflow-approval-node policy gating ──────────────
+#
+# The `approval` node in workflow_engine.py has, until now, treated moving its
+# linked Work row to "completed" as the entire approval record — real and
+# working, but not `ApprovalPolicy`-aware (see that module's docstring). This
+# section is the opt-in richer path: when the node's config carries a
+# `policy_id`, real per-approver `Approval` rows (the same table the deploy
+# gate uses, now with `execution_id` set instead of `run_id` — see
+# app/models/run.py) are counted against that policy's `min_approvers` /
+# `approver_roles` before the execution is allowed to advance. No `policy_id`
+# on the node means nothing here runs at all — the existing Work-status
+# fallback is completely unaffected, byte-for-byte the same behavior as
+# before this section existed.
+#
+# Explicitly NOT implemented this session (see ADLC_PROJECT_OVERVIEW.md):
+# monetary thresholds, risk-level-based rules, department/team/user/agent/
+# environment/action-type conditions. Only min_approvers + approver_roles are
+# real; everything else in the spec's section-18 wishlist stays future work.
+
+@dataclass
+class WorkflowApprovalDecision:
+    """
+    `allow` / `deny` / `require_approval` — the three-outcome vocabulary
+    spec section 18 asks for, distinct from the deploy gate's boolean
+    `PolicyDecision.allowed` because a workflow approval node has a third,
+    legitimate steady state: waiting on more approvers, which is neither an
+    outright allow nor a hard deny.
+    """
+    outcome: str                    # "allow" | "deny" | "require_approval"
+    policy_id: uuid.UUID | None
+    policy_name: str
+    approvals_required: int
+    approvals_have: int
+    reasons: list[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "outcome": self.outcome,
+            "policy_id": str(self.policy_id) if self.policy_id else None,
+            "policy_name": self.policy_name,
+            "approvals_required": self.approvals_required,
+            "approvals_have": self.approvals_have,
+            "reasons": self.reasons,
+        }
+
+
+def evaluate_workflow_approval(
+    db: Session, *, execution_id, policy_id, approver_role: str | None = None,
+) -> WorkflowApprovalDecision:
+    """Wraps `_evaluate_workflow_approval` with the step-19 audit row — a
+    single exit point so the decision (allow/deny/require_approval) is
+    recorded exactly once regardless of which of the inner function's return
+    branches fired, tagged with the execution's org/department so it lands
+    on the unified timeline next to the workflow's other events."""
+    decision = _evaluate_workflow_approval(
+        db, execution_id=execution_id, policy_id=policy_id, approver_role=approver_role,
+    )
+    try:
+        from app.models.workflow import Workflow, WorkflowExecution
+        execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+        workflow = (
+            db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
+            if execution else None
+        )
+        audit_service.record(
+            db, action=f"workflow_approval.{decision.outcome}",
+            entity_type="workflow_execution", entity_id=execution_id,
+            org_id=workflow.organization_id if workflow else None,
+            department_id=workflow.department_id if workflow else None,
+            metadata={
+                "policy_id": str(policy_id) if policy_id else None,
+                "policy_name": decision.policy_name,
+                "approver_role": approver_role,
+                "approvals_required": decision.approvals_required,
+                "approvals_have": decision.approvals_have,
+                "reasons": decision.reasons,
+            },
+        )
+    except Exception:
+        pass  # audit is best-effort — never let it affect the approval decision itself
+    return decision
+
+
+def _evaluate_workflow_approval(
+    db: Session, *, execution_id, policy_id, approver_role: str | None = None,
+) -> WorkflowApprovalDecision:
+    """
+    Real approval-record gating for a workflow `approval` node.
+
+    Counts distinct-reviewer `Approval` rows with `execution_id == execution_id`
+    and `decision == 'approved'` against the referenced `ApprovalPolicy`'s
+    `min_approvers`. A `decision == 'rejected'` row is an immediate `deny` —
+    one rejection ends the vote, it does not just fail to count toward the
+    total, matching how a deploy rejection behaves today.
+
+    `approver_role` is the acting approver's own org role, checked against
+    `approver_roles` at the moment they vote (not retroactively against
+    historical rows) — the same shape `evaluate_deploy`'s
+    `approver_roles_present` check uses, adapted to a single-caller call site
+    since a workflow approval endpoint approves one person at a time rather
+    than evaluating a whole set of existing rows.
+    """
+    policy_row = db.query(ApprovalPolicy).filter(ApprovalPolicy.id == policy_id).first()
+    if not policy_row:
+        return WorkflowApprovalDecision(
+            outcome="deny", policy_id=policy_id, policy_name="(missing)",
+            approvals_required=1, approvals_have=0,
+            reasons=[f"Referenced policy {policy_id} does not exist or was deleted"],
+        )
+    policy = _as_dict(policy_row)
+    need = policy.get("min_approvers", 1)
+
+    if approver_role is not None:
+        allowed_roles = set(policy.get("approver_roles") or [])
+        if allowed_roles and approver_role not in allowed_roles:
+            return WorkflowApprovalDecision(
+                outcome="deny", policy_id=policy_row.id, policy_name=policy["name"],
+                approvals_required=need, approvals_have=0,
+                reasons=[f"Role '{approver_role}' is not permitted to approve (needs one of: "
+                        f"{', '.join(sorted(allowed_roles))})"],
+            )
+
+    rejections = (
+        db.query(Approval)
+        .filter(Approval.execution_id == execution_id, Approval.decision == "rejected")
+        .first()
+    )
+    if rejections:
+        return WorkflowApprovalDecision(
+            outcome="deny", policy_id=policy_row.id, policy_name=policy["name"],
+            approvals_required=need, approvals_have=0,
+            reasons=["An approver rejected this workflow approval step"],
+        )
+
+    approvals = (
+        db.query(Approval)
+        .filter(Approval.execution_id == execution_id, Approval.decision == "approved")
+        .all()
+    )
+    distinct_reviewers = {a.reviewer_id for a in approvals if a.reviewer_id}
+    have = len(distinct_reviewers) or len(approvals)
+
+    if have >= need:
+        return WorkflowApprovalDecision(
+            outcome="allow", policy_id=policy_row.id, policy_name=policy["name"],
+            approvals_required=need, approvals_have=have,
+        )
+    return WorkflowApprovalDecision(
+        outcome="require_approval", policy_id=policy_row.id, policy_name=policy["name"],
+        approvals_required=need, approvals_have=have,
+        reasons=[f"{have}/{need} required approvals"],
+    )
 
 
 def promote_next(db: Session, *, project_id, org_id) -> str | None:

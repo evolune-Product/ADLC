@@ -105,6 +105,12 @@ def _org_out(org: Organization, role: str | None = None) -> OrgOut:
         slug=org.slug,
         avatar_url=org.avatar_url,
         created_by=org.created_by,
+        industry=org.industry,
+        company_size=org.company_size,
+        timezone=org.timezone,
+        default_locale=org.default_locale,
+        description=org.description,
+        logo_url=org.logo_url,
         created_at=org.created_at,
         updated_at=org.updated_at,
         role=role,
@@ -264,6 +270,18 @@ def update_org(
         org.name = body.name
     if body.avatar_url is not None:
         org.avatar_url = body.avatar_url
+    if body.industry is not None:
+        org.industry = body.industry
+    if body.company_size is not None:
+        org.company_size = body.company_size
+    if body.timezone is not None:
+        org.timezone = body.timezone
+    if body.default_locale is not None:
+        org.default_locale = body.default_locale
+    if body.description is not None:
+        org.description = body.description
+    if body.logo_url is not None:
+        org.logo_url = body.logo_url
     db.commit()
     db.refresh(org)
     return _org_out(org, role=m.role)

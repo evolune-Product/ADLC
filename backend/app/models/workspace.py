@@ -87,6 +87,8 @@ class Channel(Base):
         ),
         Index("ix_channels_org_kind", "org_id", "kind"),
         Index("ix_channels_user", "user_id"),
+        Index("ix_channels_department", "department_id"),
+        Index("ix_channels_team", "team_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -115,6 +117,15 @@ class Channel(Base):
     )
     ticket_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tickets.id", ondelete="CASCADE"), nullable=True
+    )
+    # Company OS steps 15-16: same "about" shape, one level up the org chart.
+    # A department/team channel gets Work-routing narration and workflow
+    # narration the way a project channel gets run narration.
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("departments.id", ondelete="CASCADE"), nullable=True
+    )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=True
     )
 
     # A default channel is auto-joined by every new member of the workspace.

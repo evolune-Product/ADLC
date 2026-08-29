@@ -495,6 +495,17 @@ def post_message(
             agent_ids=agent_ids, org_ctx=org_ctx,
         )
 
+    # @department / @team — deterministic explicit mention, tried whenever no
+    # agent mention already claimed this message (an @dev mention and an
+    # @sales mention in the same line is ambiguous enough that "do both"
+    # would be a platform guessing, not acting on an instruction).
+    if not dispatched and org_ctx:
+        dept_team_dispatched = bridge.dispatch_department_mention(
+            db, channel=ch, message=msg, current_user=current_user, org_ctx=org_ctx,
+        )
+        if dept_team_dispatched:
+            dispatched = dept_team_dispatched
+
     out = ws.serialize_message(db, msg)
     if dispatched:
         out["dispatched"] = dispatched

@@ -23,11 +23,14 @@ from app.data.builtin_templates import all_templates
 from app.database import get_db
 from app.models.agent import Agent, AgentSkill
 from app.models.catalog import MarketplaceInstall, MarketplaceListing, Template
+from app.models.department import Department
 from app.models.pod import Pod, PodAgent
 from app.models.skill import Skill
 from app.models.user import User
+from app.models.workflow import Workflow
 from app.routers._helpers import OrgContext, can_write, get_optional_org, is_domain_admin, owner_filter
 from app.routers.auth import get_current_user
+from app.services.department_service import unique_department_slug
 
 router = APIRouter()
 
@@ -191,7 +194,13 @@ def install_template(
         raise HTTPException(404, "Template not found")
 
     org_id = org_ctx.org_id if org_ctx else None
-    installer = {"skill": _install_skill, "agent": _install_agent, "pod": _install_pod}[tpl.kind]
+    if tpl.kind == "company" and org_id is None:
+        raise HTTPException(400, "Company templates require an org context (X-Org-ID header) — "
+                                  "a Department/Workflow has nowhere to go in a personal workspace")
+    installer = {
+        "skill": _install_skill, "agent": _install_agent, "pod": _install_pod,
+        "company": _install_company,
+    }[tpl.kind]
     resource_id, name = installer(db, tpl, current_user.id, org_id)
 
     if tpl.listing:
@@ -274,6 +283,54 @@ def _install_pod(db: Session, tpl: Template, user_id, org_id) -> tuple[uuid.UUID
         ))
     db.commit()
     return pod.id, pod.name
+
+
+def _install_company(db: Session, tpl: Template, user_id, org_id) -> tuple[uuid.UUID, str]:
+    """
+    Company OS step 22 — materialises a real set of Departments and starter
+    Workflows, reusing the exact write paths the departments/workflows
+    routers use (`unique_department_slug` + `Department(...)`,
+    `Workflow(...)`) rather than a parallel "preview" construction. Existing
+    departments with the same name are left alone and reused rather than
+    duplicated, so installing a second company template into an org that
+    already has an "Engineering" department does not create a second one.
+    """
+    payload = tpl.payload or {}
+    dept_by_name: dict[str, Department] = {
+        d.name: d for d in db.query(Department).filter(Department.organization_id == org_id).all()
+    }
+    for spec in payload.get("departments", []):
+        name = spec["name"]
+        if name in dept_by_name:
+            continue
+        dept = Department(
+            organization_id=org_id, name=name,
+            slug=unique_department_slug(db, org_id, name),
+            description=spec.get("description"),
+        )
+        db.add(dept)
+        db.flush()
+        dept_by_name[name] = dept
+    db.commit()
+
+    created_workflows = 0
+    for wf_spec in payload.get("workflows", []):
+        dept = dept_by_name.get(wf_spec.get("department"))
+        wf = Workflow(
+            organization_id=org_id,
+            department_id=dept.id if dept else None,
+            name=wf_spec["name"],
+            description=wf_spec.get("description"),
+            trigger_type="manual",
+            definition=wf_spec["definition"],
+            created_by=user_id,
+        )
+        db.add(wf)
+        created_workflows += 1
+    db.commit()
+
+    first_dept = next(iter(dept_by_name.values()), None)
+    return (first_dept.id if first_dept else uuid.uuid4()), tpl.name
 
 
 # ── Publish ───────────────────────────────────────────────────────────────────

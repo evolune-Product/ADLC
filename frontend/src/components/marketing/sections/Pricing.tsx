@@ -1,9 +1,11 @@
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { Check, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Reveal, SplitHeading } from '../Reveal'
 import { Eyebrow, MkButton } from '../ui'
-import { PLANS, PRICING_NOTES } from '../content'
+import { PLANS, PRICING_NOTES, formatInrWithGst, INDIA_GST_RATE } from '../content'
+
+type Currency = 'usd' | 'inr'
 
 /**
  * Pricing, argued rather than listed.
@@ -15,13 +17,38 @@ import { PLANS, PRICING_NOTES } from '../content'
  */
 
 export function PricingPlans({ compact = false }: { compact?: boolean }) {
+  const [currency, setCurrency] = useState<Currency>('usd')
+
   return (
-    <div
-      className={cn(
-        'mx-auto grid max-w-3xl gap-px overflow-hidden rounded-2xl border border-[var(--mk-hairline)] bg-[var(--mk-hairline)]',
-        'grid-cols-1 sm:grid-cols-2',
+    <div className="mx-auto max-w-3xl">
+      {compact ? null : (
+        <div className="mb-5 flex items-center justify-end gap-1">
+          <span className="mk-mono mr-2 text-[10.5px] uppercase tracking-[0.14em] text-[var(--mk-ink-3)]">
+            Currency
+          </span>
+          {(['usd', 'inr'] as const).map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCurrency(c)}
+              className={cn(
+                'mk-mono rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.1em] transition-colors',
+                currency === c
+                  ? 'border-[var(--mk-ember)] bg-[var(--mk-ember)]/10 text-[var(--mk-ember-lit)]'
+                  : 'border-[var(--mk-hairline)] text-[var(--mk-ink-3)] hover:text-[var(--mk-ink-2)]',
+              )}
+            >
+              {c === 'usd' ? 'USD' : 'INR incl. GST'}
+            </button>
+          ))}
+        </div>
       )}
-    >
+      <div
+        className={cn(
+          'grid gap-px overflow-hidden rounded-2xl border border-[var(--mk-hairline)] bg-[var(--mk-hairline)]',
+          'grid-cols-1 sm:grid-cols-2',
+        )}
+      >
       {PLANS.map((plan, i) => (
         <Reveal
           key={plan.id}
@@ -48,9 +75,18 @@ export function PricingPlans({ compact = false }: { compact?: boolean }) {
           <div className="mk-display text-[20px]">{plan.name}</div>
 
           <div className="mt-5 flex items-baseline gap-2">
-            <span className="mk-readout-value text-[clamp(30px,3.4vw,40px)]">{plan.price}</span>
+            <span className="mk-readout-value text-[clamp(30px,3.4vw,40px)]">
+              {currency === 'inr' && plan.priceUsd !== null
+                ? formatInrWithGst(plan.priceUsd)
+                : plan.price}
+            </span>
             <span className="text-[13px] text-[var(--mk-ink-3)]">{plan.cadence}</span>
           </div>
+          {currency === 'inr' && plan.priceUsd !== null ? (
+            <div className="mk-mono mt-1 text-[10.5px] text-[var(--mk-ink-3)]">
+              {plan.priceUsd === 0 ? 'No GST on a free plan' : `Includes ${Math.round(INDIA_GST_RATE * 100)}% GST · billed via Razorpay`}
+            </div>
+          ) : null}
 
           {/* Fixed height, not min-height: the summaries wrap to two lines or
               three depending on the column, and without this the Runs/Overage/
@@ -91,6 +127,7 @@ export function PricingPlans({ compact = false }: { compact?: boolean }) {
           </MkButton>
         </Reveal>
       ))}
+      </div>
     </div>
   )
 }
