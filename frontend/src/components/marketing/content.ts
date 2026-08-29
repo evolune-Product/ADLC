@@ -161,6 +161,9 @@ export type Plan = {
   id: string
   name: string
   price: string
+  /** Raw USD/month, for deriving the INR+GST display. `null` for a
+   *  custom/talk-to-us price with nothing to convert. */
+  priceUsd: number | null
   cadence: string
   summary: string
   runs: string
@@ -172,12 +175,34 @@ export type Plan = {
   featured?: boolean
 }
 
+/**
+ * The USD→INR rate this page's INR toggle converts at, and why it is a rate
+ * rather than a live quote: a marketing page re-fetching FX on every load
+ * would make the price the least stable thing on the page, and a rate that
+ * drifts a few paise from the day's actual mid-market rate is not what loses
+ * or wins a deal — being unable to say the same number twice is. Revisit this
+ * constant by hand periodically rather than wiring in a live feed.
+ * Matches the ₹87/USD assumption in `documents/MARKET_RESEARCH_2026-08-25.md` §5.1.
+ */
+export const USD_TO_INR = 87
+
+/** 18% GST on SaaS, per `documents/MARKET_RESEARCH_2026-08-25.md` §4.2. Shown
+ *  inclusive, the way a buyer here actually reads a price. */
+export const INDIA_GST_RATE = 0.18
+
+export function formatInrWithGst(usd: number): string {
+  const inrExGst = usd * USD_TO_INR
+  const inrInclGst = Math.round(inrExGst * (1 + INDIA_GST_RATE))
+  return `₹${inrInclGst.toLocaleString('en-IN')}`
+}
+
 /** Mirrors §2 of `documents/BUSINESS_PLAN_2026.md`. */
 export const PLANS: Plan[] = [
   {
     id: 'free',
     name: 'Free',
     price: '$0',
+    priceUsd: 0,
     cadence: 'forever',
     summary: 'Bring your own model key and run a real pipeline end to end.',
     runs: '25 runs / month',
@@ -197,6 +222,7 @@ export const PLANS: Plan[] = [
     id: 'team',
     name: 'Team',
     price: '$199',
+    priceUsd: 199,
     cadence: 'per month',
     summary: 'For a team that wants the gate to actually mean something.',
     runs: '250 runs included',
@@ -218,6 +244,7 @@ export const PLANS: Plan[] = [
     id: 'growth',
     name: 'Growth',
     price: '$699',
+    priceUsd: 699,
     cadence: 'per month',
     summary: 'For several teams sharing one governed pipeline.',
     runs: '1,000 runs included',
@@ -241,6 +268,7 @@ export const PLANS: Plan[] = [
     // onto two lines in the card, which pushed this column's whole meta plate
     // out of alignment with the other three.
     price: '$3,500+',
+    priceUsd: null,
     cadence: 'per month',
     summary: 'For the org where a bad deploy is a board-level event.',
     runs: 'Custom volume',
@@ -402,6 +430,12 @@ export const SECURITY_POSTURE: ReadonlyArray<{
       {
         title: 'Bring your own model key',
         body: 'Point any plan at your own Anthropic, OpenAI, Azure or OpenAI-compatible credentials. Your prompts and your code then go to your tenancy, on your contract, under your data-processing terms — not ours.',
+        state: 'built',
+        where: 'backend/app/services/llm_service.py',
+      },
+      {
+        title: 'We do not train on your code or prompts',
+        body: 'There is no fine-tuning or training pipeline anywhere in this codebase — not for our own use, not for a vendor’s. On the BYO-key path your prompts and code go straight to the model provider you configured, governed by your contract with them, not ours. This is a written commitment, not a checkbox: audit the repository yourself rather than take our word for it.',
         state: 'built',
         where: 'backend/app/services/llm_service.py',
       },
