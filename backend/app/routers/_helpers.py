@@ -60,6 +60,14 @@ class OrgContext:
     org_id: uuid.UUID
     org_name: str
     role: str
+    # Added for Company OS: department/team-scoped checks (is_department_head,
+    # is_team_lead) need to know *who* is asking, not just their org role —
+    # a "department_head" role is necessary but not sufficient, the caller
+    # must specifically head *this* department. Every existing caller of
+    # OrgContext(...) in this codebase uses keyword arguments, so adding a
+    # field with no default is safe; get_optional_org is the only place that
+    # constructs one.
+    user_id: uuid.UUID = None  # type: ignore[assignment]
 
 
 def get_optional_org(
@@ -92,7 +100,7 @@ def get_optional_org(
     if not member:
         raise HTTPException(status_code=403, detail="Not a member of this organization")
 
-    return OrgContext(org_id=org_uuid, org_name=org.name, role=member.role)
+    return OrgContext(org_id=org_uuid, org_name=org.name, role=member.role, user_id=current_user.id)
 
 
 def require_org_role(min_role: str):
@@ -147,6 +155,57 @@ def is_domain_admin(org_ctx: Optional["OrgContext"], domain: str) -> bool:
     point of having specialist roles rather than a second flavour of admin.
     """
     return org_roles.is_domain_admin(org_ctx.role if org_ctx else None, domain)
+
+
+def is_department_head(org_ctx: Optional["OrgContext"], db: Session, department_id, user_id) -> bool:
+    """
+    Whether *user_id* heads *department_id* (its `head_user_id`), or already
+    administers the org outright (owner/admin structurally outrank every
+    department head; department scoping has no router-declared `domain`
+    string for `is_domain_admin` to key off, so that check is inlined here).
+
+    `None` org_ctx (personal workspace) always passes, matching every other
+    helper in this module — a solo user has no department structure to be
+    denied by.
+    """
+    if org_ctx is None:
+        return True
+    if org_ctx.role in ("owner", "admin"):
+        return True
+    from app.models.department import Department
+
+    dept = db.query(Department).filter(
+        Department.id == department_id,
+        Department.organization_id == org_ctx.org_id,
+    ).first()
+    return bool(dept and dept.head_user_id and str(dept.head_user_id) == str(user_id))
+
+
+def is_team_lead(org_ctx: Optional["OrgContext"], db: Session, team_id, user_id) -> bool:
+    """
+    Whether *user_id* leads *team_id* (a `team_members` row with
+    `role_in_team == 'lead'`), or already administers the org / heads the
+    team's department.
+    """
+    if org_ctx is None:
+        return True
+    if org_ctx.role in ("owner", "admin"):
+        return True
+    from app.models.department import Team, TeamMember
+
+    team = db.query(Team).filter(
+        Team.id == team_id,
+        Team.organization_id == org_ctx.org_id,
+    ).first()
+    if not team:
+        return False
+    if is_department_head(org_ctx, db, team.department_id, user_id):
+        return True
+    membership = db.query(TeamMember).filter(
+        TeamMember.team_id == team_id,
+        TeamMember.user_id == user_id,
+    ).first()
+    return bool(membership and membership.role_in_team == "lead")
 
 
 def owner_filter(model: Type[T], current_user, org_ctx: Optional[OrgContext]):
