@@ -13,7 +13,7 @@
 import { Link } from 'react-router-dom'
 import {
   Activity, AlertCircle, Building2, GitBranch, MessagesSquare,
-  Plug, ShieldCheck, Users2,
+  Plug, ShieldCheck,
 } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton'
