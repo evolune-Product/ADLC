@@ -265,21 +265,28 @@ def _channel_for_execution(db: Session, execution: WorkflowExecution, workflow: 
     department channel, otherwise nothing (no channel to narrate into, which
     is a normal state for a department-less org-wide workflow).
     """
+    # Channel.user_id is NOT NULL (the "creator" convention every channel in
+    # this codebase has); the workflow's own creator is always a safe
+    # fallback so a department with no head_user_id yet still gets a channel.
+    fallback_creator = workflow.created_by
+
     if execution.work_id:
         work = db.query(Work).filter(Work.id == execution.work_id).first()
         if work:
             if work.team_id:
                 team = db.query(Team).filter(Team.id == work.team_id).first()
                 if team:
-                    return channel_for_team(db, team, created_by=team.department.head_user_id if team.department else None) or None
+                    dept = db.query(Department).filter(Department.id == team.department_id).first()
+                    creator = (dept.head_user_id if dept and dept.head_user_id else None) or fallback_creator
+                    return channel_for_team(db, team, created_by=creator)
             if work.department_id:
                 dept = db.query(Department).filter(Department.id == work.department_id).first()
                 if dept:
-                    return channel_for_department(db, dept)
+                    return channel_for_department(db, dept, created_by=dept.head_user_id or fallback_creator)
     if workflow.department_id:
         dept = db.query(Department).filter(Department.id == workflow.department_id).first()
         if dept:
-            return channel_for_department(db, dept)
+            return channel_for_department(db, dept, created_by=dept.head_user_id or fallback_creator)
     return None
 
 
