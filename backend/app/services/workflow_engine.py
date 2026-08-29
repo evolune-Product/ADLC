@@ -74,6 +74,20 @@ from app.models.work import Work
 from app.models.workflow import Workflow, WorkflowExecution, WorkflowExecutionStep
 from app.services import company_api_service, llm_service, metering_service, notifier
 
+
+def _narrate(db: Session, execution_id, event: str, data: dict | None = None) -> None:
+    """
+    Best-effort workflow narration (Company OS steps 15-16 item 3) — mirrors
+    the exact call shape `run_tasks.py` uses for `narrate_run_event`. Imported
+    lazily to avoid a module-load cycle (workspace_bridge is chat-layer code
+    that has no business being a hard import of the engine).
+    """
+    try:
+        from app.services import workspace_bridge
+        workspace_bridge.narrate_workflow_event(db, execution_id, event, data)
+    except Exception:
+        pass
+
 SYNC_NODE_TYPES = (
     "trigger", "completion", "transform", "notification", "condition",
     "agent_task", "delay", "api_call",
@@ -227,7 +241,9 @@ def start_execution(db: Session, workflow: Workflow, work: Work | None = None,
         execution.error = "Workflow definition has no start_node_id"
         execution.completed_at = _now()
         db.commit()
+        _narrate(db, execution.id, "workflow:failed")
         return execution
+    _narrate(db, execution.id, "workflow:started")
     return advance(db, execution)
 
 
@@ -278,6 +294,9 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
                 execution.current_node_id = node["id"]
                 execution.status = "awaiting_approval" if node_type == "approval" else "running"
                 db.commit()
+                _narrate(db, execution.id,
+                        "workflow:awaiting_approval" if node_type == "approval" else "workflow:human_task",
+                        {"work_id": str(work_row.id)})
                 return execution
 
             if node_type == "trigger":
@@ -322,6 +341,7 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
                 execution.current_node_id = None
                 execution.completed_at = _now()
                 db.commit()
+                _narrate(db, execution.id, "workflow:completed")
                 return execution
             else:
                 raise NotImplementedError(f"Unknown node type '{node_type}'")
@@ -350,6 +370,7 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
     execution.status = "completed"
     execution.completed_at = _now()
     db.commit()
+    _narrate(db, execution.id, "workflow:completed")
     return execution
 
 
@@ -358,6 +379,7 @@ def _fail(db: Session, execution: WorkflowExecution, message: str) -> WorkflowEx
     execution.error = message
     execution.completed_at = _now()
     db.commit()
+    _narrate(db, execution.id, "workflow:failed")
     return execution
 
 
