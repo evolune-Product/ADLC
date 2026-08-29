@@ -21,7 +21,7 @@ export function Interstitial({
   rise?: number
 }) {
   return (
-    <section className="relative overflow-hidden py-[clamp(80px,10vw,150px)]">
+    <section className="relative overflow-hidden" style={{ paddingBlock: 'var(--mk-section-y)' }}>
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0"
