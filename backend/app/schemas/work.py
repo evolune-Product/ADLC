@@ -51,6 +51,8 @@ class WorkOut(BaseModel):
     assigned_agent_id: Optional[uuid.UUID] = None
     workflow_id: Optional[str] = None
     approval_state: Optional[str] = None
+    routing_confidence: Optional[str] = None
+    routing_reasoning: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None

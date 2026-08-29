@@ -31,6 +31,7 @@ from app.routers._helpers import OrgContext, can_write, get_optional_org
 from app.routers.auth import get_current_user
 from app.schemas.work import WorkAssign, WorkCreate, WorkOut, WorkStatusUpdate, WorkUpdate
 from app.services.work_service import InvalidTransition, apply_transition
+from app.services.routing_service import route_work
 
 router = APIRouter()
 
@@ -126,6 +127,18 @@ def create_work(
         assigned_user_id=body.assigned_user_id,
         assigned_agent_id=body.assigned_agent_id,
     )
+    # Rule-based routing — explicit department_id always wins (route_work
+    # returns it unchanged in that case); otherwise a name/text match, or
+    # left unrouted with a reason a human can act on. Never bypasses
+    # authorization: the department it lands on still has to pass
+    # _validate_dept_team, exactly as a manually-supplied one did above.
+    decision = route_work(db, work)
+    if decision.department_id is not None and work.department_id is None:
+        _validate_dept_team(db, org_ctx, decision.department_id, None)
+        work.department_id = decision.department_id
+    work.routing_confidence = decision.confidence
+    work.routing_reasoning = decision.reasoning
+
     db.add(work)
     db.commit()
     db.refresh(work)
@@ -215,6 +228,27 @@ def update_work_status(
         work.completed_at = dt.datetime.now(dt.timezone.utc)
     db.commit()
     db.refresh(work)
+
+    # Resume the workflow execution waiting on this Work item, if any (the
+    # human_task/approval two-task pattern — see workflow_engine.py). Never
+    # allowed to affect the Work API's own success: a workflow-engine bug
+    # must not stop a person from updating their work item.
+    if work.workflow_id and work.status in ("completed", "failed", "cancelled"):
+        try:
+            import uuid as _uuid
+            from app.models.workflow import WorkflowExecution
+            from app.services import workflow_engine
+            execution = db.query(WorkflowExecution).filter(
+                WorkflowExecution.id == _uuid.UUID(work.workflow_id)
+            ).first()
+            if execution and execution.status in ("running", "awaiting_approval"):
+                if work.status == "completed":
+                    workflow_engine.resume_execution(db, execution)
+                else:
+                    workflow_engine.fail_execution(db, execution, f"Linked work item was {work.status}")
+        except Exception:
+            pass
+
     return work
 
 

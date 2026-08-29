@@ -27,6 +27,7 @@ from app.models.workspace import (
 # Phase 13 — Company OS foundation
 from app.models.department import Department, Team, TeamMember
 from app.models.work import Work
+from app.models.workflow import Workflow, WorkflowExecution, WorkflowExecutionStep
 
 __all__ = [
     "User", "Organization", "OrgMember", "OrgInvitation", "SsoConnection",
@@ -43,4 +44,5 @@ __all__ = [
     "Channel", "ChannelMember", "Message", "MessageReaction", "UserPresence",
     "ModelCredential",
     "Department", "Team", "TeamMember", "Work",
+    "Workflow", "WorkflowExecution", "WorkflowExecutionStep",
 ]

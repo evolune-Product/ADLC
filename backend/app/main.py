@@ -6,7 +6,7 @@ from app.routers import auth, connections, skills, agents, pods, projects, ticke
 from app.routers import dashboard, settings as settings_router
 from app.routers import billing, notifications, insights, governance, catalog, memory, public_api, mcp, sprint
 from app.routers import workspace, integrations
-from app.routers import departments, teams, work
+from app.routers import departments, teams, work, desk, workflows
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
 
@@ -71,6 +71,8 @@ fastapi_app.include_router(departments.router,    prefix="/departments",   tags=
 # related-but-distinct resources.
 fastapi_app.include_router(teams.router,          prefix="/departments",   tags=["teams"])
 fastapi_app.include_router(work.router,           prefix="/work",          tags=["work"])
+fastapi_app.include_router(desk.router,           prefix="/desk",          tags=["desk"])
+fastapi_app.include_router(workflows.router,      prefix="/workflows",     tags=["workflows"])
 
 
 @fastapi_app.get("/health")

@@ -95,6 +95,13 @@ class Work(Base):
     workflow_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     approval_state: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
+    # routing_service.route_work's decision, kept visible on the row itself —
+    # per spec item 48 ("never hide what will happen") the reasoning behind
+    # where a request landed (or why it didn't) must be inspectable, not just
+    # logged. confidence is "explicit" | "matched" | "unmatched".
+    routing_confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    routing_reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
