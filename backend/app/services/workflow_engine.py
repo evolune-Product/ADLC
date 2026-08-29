@@ -72,7 +72,7 @@ from app.agents._common import workspace_credential
 from app.models.agent import Agent
 from app.models.work import Work
 from app.models.workflow import Workflow, WorkflowExecution, WorkflowExecutionStep
-from app.services import company_api_service, llm_service, metering_service, notifier
+from app.services import audit_service, company_api_service, llm_service, metering_service, notifier
 
 
 def _narrate(db: Session, execution_id, event: str, data: dict | None = None) -> None:
@@ -87,6 +87,22 @@ def _narrate(db: Session, execution_id, event: str, data: dict | None = None) ->
         workspace_bridge.narrate_workflow_event(db, execution_id, event, data)
     except Exception:
         pass
+
+
+def _audit(db: Session, workflow: Workflow, execution: WorkflowExecution, action: str,
+           extra: dict | None = None) -> None:
+    """Company OS step 19 — the HTTP-level AuditMiddleware sees the API call
+    that *started* an execution (POST /workflows/{id}/execute), never what
+    the execution does on its own after that. Every status transition and
+    every real node-level side effect records a row here instead, tagged
+    with org/department so the unified timeline can filter to "what did this
+    workflow actually do" rather than just "who clicked run"."""
+    audit_service.record(
+        db, action=action, entity_type="workflow_execution", entity_id=execution.id,
+        user_id=workflow.created_by, org_id=workflow.organization_id,
+        department_id=workflow.department_id,
+        metadata={"workflow_id": str(workflow.id), "workflow_name": workflow.name, **(extra or {})},
+    )
 
 SYNC_NODE_TYPES = (
     "trigger", "completion", "transform", "notification", "condition",
@@ -242,8 +258,10 @@ def start_execution(db: Session, workflow: Workflow, work: Work | None = None,
         execution.completed_at = _now()
         db.commit()
         _narrate(db, execution.id, "workflow:failed")
+        _audit(db, workflow, execution, "workflow_execution.failed", {"error": execution.error})
         return execution
     _narrate(db, execution.id, "workflow:started")
+    _audit(db, workflow, execution, "workflow_execution.started")
     return advance(db, execution)
 
 
@@ -297,6 +315,9 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
                 _narrate(db, execution.id,
                         "workflow:awaiting_approval" if node_type == "approval" else "workflow:human_task",
                         {"work_id": str(work_row.id)})
+                _audit(db, workflow, execution,
+                       f"workflow_execution.{'awaiting_approval' if node_type == 'approval' else 'awaiting_human_task'}",
+                       {"node_id": node["id"], "work_id": str(work_row.id)})
                 return execution
 
             if node_type == "trigger":
@@ -320,6 +341,8 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
                 output = _run_agent_task(db, workflow, execution, node)
                 execution.context = {**execution.context, node["id"]: output}
                 step.output = output
+                _audit(db, workflow, execution, "workflow_execution.agent_task_run",
+                       {"node_id": node["id"], "agent_id": output.get("agent_id")})
             elif node_type == "api_call":
                 try:
                     output = _run_api_call(db, workflow, execution, node)
@@ -329,6 +352,13 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
                     raise RuntimeError(f"api_call node '{node['id']}' failed: {exc}") from exc
                 execution.context = {**execution.context, node["id"]: output}
                 step.output = output
+                # The real ToolGrant/CompanyApi usage row itself is written
+                # inside company_api_service.call_endpoint (it is the one
+                # place that knows about every caller — chat, agent, API —
+                # not just workflow nodes). This is the workflow-side record
+                # of *which node* triggered it.
+                _audit(db, workflow, execution, "workflow_execution.api_call_run",
+                       {"node_id": node["id"], "status_code": output.get("status_code")})
             elif node_type == "delay":
                 # No scheduler this session — a documented no-op pass-through,
                 # not a fake wait.
@@ -342,6 +372,7 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
                 execution.completed_at = _now()
                 db.commit()
                 _narrate(db, execution.id, "workflow:completed")
+                _audit(db, workflow, execution, "workflow_execution.completed", {"node_id": node["id"]})
                 return execution
             else:
                 raise NotImplementedError(f"Unknown node type '{node_type}'")
@@ -371,6 +402,7 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
     execution.completed_at = _now()
     db.commit()
     _narrate(db, execution.id, "workflow:completed")
+    _audit(db, workflow, execution, "workflow_execution.completed", {"reason": "ran off end of graph"})
     return execution
 
 
@@ -380,6 +412,9 @@ def _fail(db: Session, execution: WorkflowExecution, message: str) -> WorkflowEx
     execution.completed_at = _now()
     db.commit()
     _narrate(db, execution.id, "workflow:failed")
+    workflow = db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
+    if workflow:
+        _audit(db, workflow, execution, "workflow_execution.failed", {"error": message})
     return execution
 
 

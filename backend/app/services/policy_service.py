@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.models.governance import ApprovalPolicy
 from app.models.insight import ReviewFinding
 from app.models.run import Approval
+from app.services import audit_service
 
 SEVERITY_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
 
@@ -346,6 +347,43 @@ class WorkflowApprovalDecision:
 
 
 def evaluate_workflow_approval(
+    db: Session, *, execution_id, policy_id, approver_role: str | None = None,
+) -> WorkflowApprovalDecision:
+    """Wraps `_evaluate_workflow_approval` with the step-19 audit row — a
+    single exit point so the decision (allow/deny/require_approval) is
+    recorded exactly once regardless of which of the inner function's return
+    branches fired, tagged with the execution's org/department so it lands
+    on the unified timeline next to the workflow's other events."""
+    decision = _evaluate_workflow_approval(
+        db, execution_id=execution_id, policy_id=policy_id, approver_role=approver_role,
+    )
+    try:
+        from app.models.workflow import Workflow, WorkflowExecution
+        execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+        workflow = (
+            db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
+            if execution else None
+        )
+        audit_service.record(
+            db, action=f"workflow_approval.{decision.outcome}",
+            entity_type="workflow_execution", entity_id=execution_id,
+            org_id=workflow.organization_id if workflow else None,
+            department_id=workflow.department_id if workflow else None,
+            metadata={
+                "policy_id": str(policy_id) if policy_id else None,
+                "policy_name": decision.policy_name,
+                "approver_role": approver_role,
+                "approvals_required": decision.approvals_required,
+                "approvals_have": decision.approvals_have,
+                "reasons": decision.reasons,
+            },
+        )
+    except Exception:
+        pass  # audit is best-effort — never let it affect the approval decision itself
+    return decision
+
+
+def _evaluate_workflow_approval(
     db: Session, *, execution_id, policy_id, approver_role: str | None = None,
 ) -> WorkflowApprovalDecision:
     """

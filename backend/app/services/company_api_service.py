@@ -39,6 +39,7 @@ from app.models.company_api import CompanyApi, CompanyApiEndpoint
 from app.services.encryption import decrypt_token
 from app.services.reader_service import ReadError, _assert_public_url, normalize_url
 from app.services.tool_grants import can_use_tool
+from app.services import audit_service
 
 log = logging.getLogger(__name__)
 
@@ -226,6 +227,26 @@ def call_endpoint(
         parsed_body: Any = response.json() if raw else None
     except Exception:
         parsed_body = raw.decode("utf-8", errors="replace")
+
+    # Real usage — Company OS step 19. Not every `can_use_tool` check call
+    # (there is no row for a caller merely being *eligible* to use a tool),
+    # only an actual outbound request that was made. This is the one place
+    # in the codebase that knows about every caller of a CompanyApi endpoint
+    # (workflow api_call nodes, and any future direct/agent caller), so it is
+    # the right place for the audit row rather than duplicating this at each
+    # call site.
+    audit_service.record(
+        db, action="company_api.endpoint_called", entity_type="company_api", entity_id=api.id,
+        org_id=org_id, department_id=department_id, team_id=team_id,
+        metadata={
+            "endpoint_id": str(endpoint.id), "endpoint_name": endpoint.name,
+            "method": endpoint.method, "status_code": response.status_code,
+            "agent_id": str(agent_id) if agent_id else None,
+            "workflow_id": str(workflow_id) if workflow_id else None,
+            "department_id": str(department_id) if department_id else None,
+            "team_id": str(team_id) if team_id else None,
+        },
+    )
 
     return {
         "status_code": response.status_code,
