@@ -29,13 +29,30 @@ approval record acted on through a real API, not a duplicate approval system
 — but it does not yet carry `ApprovalPolicy`'s richer rules (min_approvers,
 approver_roles, review-score gating). That richer integration is future work.
 
-api_call / webhook nodes
---------------------------
+api_call nodes
+---------------
+Real as of Company OS step 12: `_run_api_call` calls
+`company_api_service.call_endpoint`, which loads the org-scoped `CompanyApi`
++ `CompanyApiEndpoint` the node's config points at, checks the ToolGrant
+allow-list, SSRF-guards and normalizes the resolved URL, decrypts auth
+just-in-time, and makes the real bounded-timeout/bounded-retry httpx call.
+Node config shape: `{"company_api_id": "...", "endpoint_id": "...",
+"body": {...}, "path_params": {...}}` — `body`/`path_params` may also be
+`{{context.path}}` templates, rendered the same way `agent_task`'s
+`prompt_template` is. A `CompanyApiError` (not found, disabled, unauthorized,
+SSRF-refused, unreachable) fails the execution loudly via the normal
+exception path below — never silently no-ops.
+
+webhook nodes
+--------------
 Recognized and stored, but deliberately NOT implemented — see module-level
-NotImplementedError below. They need the "BYO API" integration registry
-(a future step) to be safe: auth handling and SSRF protection belong there,
-not improvised here. Reaching one of these nodes fails the execution loudly
-with a clear message rather than silently no-opping or faking a call.
+NotImplementedError below. A webhook call is an *inbound* delivery mechanism
+(the workflow needs to receive one, not send one) and needs its own signing/
+retry/delivery-log design (`WebhookDelivery` exists for the *outbound*
+governance-event webhooks in `governance.py`, a different shape); reusing
+that half-fits and was deliberately not forced here. Reaching this node type
+fails the execution loudly with a clear message rather than silently
+no-opping or faking a call.
 
 sub_workflow nodes
 --------------------
@@ -55,11 +72,14 @@ from app.agents._common import workspace_credential
 from app.models.agent import Agent
 from app.models.work import Work
 from app.models.workflow import Workflow, WorkflowExecution, WorkflowExecutionStep
-from app.services import llm_service, metering_service, notifier
+from app.services import company_api_service, llm_service, metering_service, notifier
 
-SYNC_NODE_TYPES = ("trigger", "completion", "transform", "notification", "condition", "agent_task", "delay")
+SYNC_NODE_TYPES = (
+    "trigger", "completion", "transform", "notification", "condition",
+    "agent_task", "delay", "api_call",
+)
 WAITING_NODE_TYPES = ("human_task", "approval")
-UNIMPLEMENTED_NODE_TYPES = ("api_call", "webhook", "sub_workflow")
+UNIMPLEMENTED_NODE_TYPES = ("webhook", "sub_workflow")
 
 
 def _now():
@@ -156,6 +176,37 @@ def _run_agent_task(db: Session, workflow: Workflow, execution: WorkflowExecutio
     return {"agent_id": str(agent.id), "output_text": result.text, "model": result.model}
 
 
+def _render_deep(value: Any, context: dict) -> Any:
+    """Apply `_render_template` to every string leaf of a dict/list, so an
+    api_call node's `body`/`path_params` can reference `{{context.path}}`
+    the same way `agent_task`'s `prompt_template` does."""
+    if isinstance(value, str):
+        return _render_template(value, context)
+    if isinstance(value, dict):
+        return {k: _render_deep(v, context) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_render_deep(v, context) for v in value]
+    return value
+
+
+def _run_api_call(db: Session, workflow: Workflow, execution: WorkflowExecution, node: dict) -> dict:
+    cfg = node.get("config") or {}
+    company_api_id = cfg.get("company_api_id")
+    endpoint_id = cfg.get("endpoint_id")
+    if not company_api_id or not endpoint_id:
+        raise ValueError("api_call node config requires 'company_api_id' and 'endpoint_id'")
+
+    body = _render_deep(cfg.get("body"), execution.context) if cfg.get("body") is not None else None
+    path_params = _render_deep(cfg.get("path_params"), execution.context) if cfg.get("path_params") is not None else None
+
+    result = company_api_service.call_endpoint(
+        db, company_api_id, endpoint_id, workflow.organization_id,
+        body=body, path_params=path_params,
+        workflow_id=workflow.id,
+    )
+    return result
+
+
 def start_execution(db: Session, workflow: Workflow, work: Work | None = None,
                      initial_context: dict | None = None) -> WorkflowExecution:
     definition = workflow.definition or {}
@@ -212,8 +263,9 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
         try:
             if node_type in UNIMPLEMENTED_NODE_TYPES:
                 raise NotImplementedError(
-                    f"'{node_type}' nodes require step 12 (BYO API integration registry) — not yet implemented"
-                    if node_type != "sub_workflow" else
+                    "'webhook' nodes (inbound delivery) are not implemented this session — "
+                    "see the module docstring"
+                    if node_type == "webhook" else
                     "'sub_workflow' nodes are not implemented this session"
                 )
 
@@ -247,6 +299,15 @@ def advance(db: Session, execution: WorkflowExecution) -> WorkflowExecution:
                 pass  # next resolved below via _resolve_next(context)
             elif node_type == "agent_task":
                 output = _run_agent_task(db, workflow, execution, node)
+                execution.context = {**execution.context, node["id"]: output}
+                step.output = output
+            elif node_type == "api_call":
+                try:
+                    output = _run_api_call(db, workflow, execution, node)
+                except company_api_service.CompanyApiError as exc:
+                    # Surfaced through the same failure path as any other
+                    # node exception — loud, not a silent no-op.
+                    raise RuntimeError(f"api_call node '{node['id']}' failed: {exc}") from exc
                 execution.context = {**execution.context, node["id"]: output}
                 step.output = output
             elif node_type == "delay":
