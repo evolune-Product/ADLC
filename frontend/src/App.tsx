@@ -16,6 +16,10 @@ import GoogleCallbackPage from '@/pages/auth/GoogleCallbackPage'
 import GitHubCallbackPage from '@/pages/auth/GitHubCallbackPage'
 import SsoCallbackPage from '@/pages/auth/SsoCallbackPage'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
+import DeskPage from '@/pages/desk/DeskPage'
+import WorkflowsPage from '@/pages/workflows/WorkflowsPage'
+import NewWorkflowPage from '@/pages/workflows/NewWorkflowPage'
+import WorkflowDetailPage from '@/pages/workflows/WorkflowDetailPage'
 import ConnectionsPage from '@/pages/connections/ConnectionsPage'
 import SkillsPage from '@/pages/skills/SkillsPage'
 import NewSkillPage from '@/pages/skills/NewSkillPage'
@@ -149,6 +153,7 @@ export default function App() {
 
             {/* Dashboard routes */}
             <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
+              <Route path="/desk" element={<DeskPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/connections" element={<ConnectionsPage />} />
               <Route path="/plugins" element={<PluginsPage />} />
@@ -168,6 +173,9 @@ export default function App() {
               <Route path="/projects/:id/tickets/:ticketId" element={<TicketDetailPage />} />
               <Route path="/runs" element={<RunsPage />} />
               <Route path="/runs/:runId" element={<RunDetailPage />} />
+              <Route path="/workflows" element={<WorkflowsPage />} />
+              <Route path="/workflows/new" element={<NewWorkflowPage />} />
+              <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
               <Route path="/audit" element={<AuditPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/billing" element={<BillingPage />} />

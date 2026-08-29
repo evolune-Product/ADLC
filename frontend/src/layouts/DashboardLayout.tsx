@@ -5,7 +5,7 @@ import {
   FolderOpen, Play, ClipboardList, Settings, LogOut,
   Menu, X, Users, Building2,
   BarChart3, CreditCard, Shield, Store, Terminal, FileCheck,
-  MessagesSquare, Activity, Plug, KeyRound,
+  MessagesSquare, Activity, Plug, KeyRound, Inbox, GitBranch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -18,6 +18,10 @@ import { AdlcMark } from '@/components/marketing/Chrome'
 const NAV = [
   {
     items: [
+      // Above Dashboard on purpose — the command center for whatever's
+      // waiting on you (pending work, approvals, department state) is the
+      // first thing to see, same reasoning that put Workspace above "Build".
+      { label: 'Desk',        to: '/desk',        icon: Inbox },
       { label: 'Dashboard',   to: '/dashboard',   icon: LayoutDashboard },
       // Above every group on purpose. The conversation is where a team starts
       // its day; burying it under "Build" is how a chat surface goes unused and
@@ -41,6 +45,7 @@ const NAV = [
     items: [
       { label: 'Projects',    to: '/projects',    icon: FolderOpen },
       { label: 'Runs',        to: '/runs',        icon: Play },
+      { label: 'Workflows',   to: '/workflows',   icon: GitBranch },
     ],
   },
   {
