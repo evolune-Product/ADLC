@@ -24,6 +24,10 @@ from app.models.workspace import (
     Channel, ChannelMember, Message, MessageReaction, UserPresence,
 )
 
+# Phase 13 — Company OS foundation
+from app.models.department import Department, Team, TeamMember
+from app.models.work import Work
+
 __all__ = [
     "User", "Organization", "OrgMember", "OrgInvitation", "SsoConnection",
     "Connection", "Skill", "Agent", "AgentSkill",
@@ -38,4 +42,5 @@ __all__ = [
     "SprintPlan", "TicketEstimate",
     "Channel", "ChannelMember", "Message", "MessageReaction", "UserPresence",
     "ModelCredential",
+    "Department", "Team", "TeamMember", "Work",
 ]
