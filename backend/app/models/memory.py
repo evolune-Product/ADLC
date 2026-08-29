@@ -10,10 +10,25 @@ Embeddings are stored as a JSONB float array rather than requiring the pgvector
 extension, so the platform installs on stock Postgres 15 (and on managed
 providers that do not offer pgvector). Cosine similarity is computed in Python;
 `memory_service.retrieve()` is the single place to swap in pgvector later.
+
+Company OS step 14 — hierarchy
+-------------------------------
+Memory was originally keyed to exactly one Project. It now supports a
+Company (org) > Department > Team > Project scope hierarchy: a chunk carries
+`organization_id`, `department_id`, `team_id` and/or `project_id`, and
+`project_id` is nullable so a chunk can live purely at the org/department/team
+level (e.g. a company-wide onboarding doc has no project at all). Exactly one
+of the four should be the chunk's *own* scope; `memory_service.retrieve_hierarchical`
+is what walks broader scopes on top of a narrow one. `Task`-level memory is
+deliberately not added here — there is no persistent Task entity in this
+codebase for a chunk to key off (Ticket/Run are the closest analogues and
+already have their own row types), so "Task" from the spec's hierarchy is
+covered at the Project level; see ADLC_PROJECT_OVERVIEW.md for this session's
+notes on the gap.
 """
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey, func, Index
+from sqlalchemy import CheckConstraint, String, Text, Integer, Boolean, DateTime, ForeignKey, func, Index
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
@@ -23,10 +38,33 @@ class MemoryChunk(Base):
     __tablename__ = "memory_chunks"
     __table_args__ = (
         Index("ix_memory_project_kind", "project_id", "kind"),
+        Index("ix_memory_org", "organization_id"),
+        Index("ix_memory_department", "department_id"),
+        Index("ix_memory_team", "team_id"),
+        CheckConstraint(
+            "project_id IS NOT NULL OR department_id IS NOT NULL OR team_id IS NOT NULL OR organization_id IS NOT NULL",
+            name="memory_chunks_scope_check",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"))
+    # Nullable now — a chunk scoped at the org/department/team level has no
+    # project at all. Existing project-scoped chunks are unaffected.
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True
+    )
+    # Company (org)-level scope. Set on every chunk that has an org, project or
+    # not, so a company-wide search never needs to join through Project/Team to
+    # find its own tenant's rows.
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True
+    )
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("departments.id", ondelete="CASCADE"), nullable=True
+    )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=True
+    )
 
     kind: Mapped[str] = mapped_column(String(30), default="file")   # file | structure | convention | decision | run_outcome
     path: Mapped[str | None] = mapped_column(Text)

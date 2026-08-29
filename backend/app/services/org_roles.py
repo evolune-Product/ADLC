@@ -180,6 +180,45 @@ ROLES: list[dict] = [
         "domains": set(),
         "invitable": True,
     },
+    {
+        "key": "department_head",
+        "label": "Department head",
+        "description": "Leads one department — Engineering, Sales, Support, whatever the org "
+                       "has created. Day-to-day write access like a member; department- and "
+                       "team-scoped authority (create teams, assign work, name team leads) is "
+                       "checked separately with `is_department_head`, not through `domains` — "
+                       "that authority is scoped to the specific department they head, not to "
+                       "an org-wide configuration area the way `domains` expresses.",
+        "category": ENGINEERING,
+        "can_write": True,
+        "domains": set(),
+        "invitable": True,
+    },
+    {
+        "key": "team_lead",
+        "label": "Team lead",
+        "description": "Leads one team inside a department. Day-to-day write access like a "
+                       "member; team-scoped authority (assign work within the team) is checked "
+                       "separately with `is_team_lead`.",
+        "category": ENGINEERING,
+        "can_write": True,
+        "domains": set(),
+        "invitable": True,
+    },
+    {
+        "key": "agent",
+        "label": "Agent",
+        "description": "An AI agent acting as a first-class organisational actor outside the "
+                       "SDLC pipeline's existing Agent/Pod machinery — e.g. an agent that can be "
+                       "assigned generic Work items directly. Deliberately excluded from "
+                       "`INVITABLE_ROLES`: an agent is never invited by email the way a human "
+                       "is, it is granted this role programmatically when it is registered as an "
+                       "org member.",
+        "category": ENGINEERING,
+        "can_write": True,
+        "domains": set(),
+        "invitable": False,
+    },
 ]
 
 BY_KEY: dict[str, dict] = {r["key"]: r for r in ROLES}

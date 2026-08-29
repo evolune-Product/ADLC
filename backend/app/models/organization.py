@@ -16,12 +16,27 @@ class Organization(Base):
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
+
+    # Company-profile fields — additive, all nullable/defaulted so every
+    # existing org row (and every prior migration) stays valid untouched.
+    # This is deliberately the SAME Organization row that has always carried
+    # SSO, billing and membership — a "Company" concept was not spun out into
+    # a parallel model, because an org already *is* the company in this
+    # schema; adding a second table would just be two names for one tenant.
+    industry: Mapped[str | None] = mapped_column(String(100))
+    company_size: Mapped[str | None] = mapped_column(String(50))
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC", server_default="UTC")
+    default_locale: Mapped[str] = mapped_column(String(16), default="en-US", server_default="en-US")
+    description: Mapped[str | None] = mapped_column(Text)
+    logo_url: Mapped[str | None] = mapped_column(Text)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     creator = relationship("User", foreign_keys=[created_by])
     members = relationship("OrgMember", back_populates="org", cascade="all, delete-orphan")
     invitations = relationship("OrgInvitation", back_populates="org", cascade="all, delete-orphan")
+    departments = relationship("Department", back_populates="org", cascade="all, delete-orphan")
 
 
 # Built from the registry, not retyped — see app/services/org_roles.py for

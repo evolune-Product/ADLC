@@ -38,11 +38,14 @@ from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.department import Department
 from app.models.governance import ApiKey
 from app.models.project import Project
 from app.models.run import Approval, Run
+from app.models.work import Work
+from app.models.workflow import Workflow, WorkflowExecution
 from app.routers.public_api import _run_out, _scoped_projects, get_api_key
-from app.services import metering_service, reader_service
+from app.services import metering_service, reader_service, workflow_engine
 
 log = logging.getLogger(__name__)
 
@@ -154,6 +157,75 @@ TOOLS: list[dict] = [
                 "comment": {"type": "string"},
             },
             "required": ["run_id", "decision"],
+        },
+    },
+    {
+        "name": "list_work",
+        "description": (
+            "List generic (non-engineering) Work requests in this organization — "
+            "support tickets, HR requests, anything routed through Company Desk. "
+            "Filter by status or department."
+        ),
+        "scope": "work:read",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "department_id": {"type": "string"},
+                "limit": {"type": "integer", "description": "Default 20, maximum 100."},
+            },
+        },
+    },
+    {
+        "name": "create_work",
+        "description": (
+            "Open a new generic Work request on behalf of this API key's owner. "
+            "Use this for non-engineering requests (support, ops, HR, finance) — "
+            "for code changes use start_run instead."
+        ),
+        "scope": "work:write",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "description": {"type": "string"},
+                "type": {"type": "string", "description": "Default 'generic_request'."},
+                "department_id": {"type": "string"},
+                "team_id": {"type": "string"},
+                "priority": {"type": "string"},
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "list_departments",
+        "description": "List the organization's departments and teams — the org chart Work and Workflows route through.",
+        "scope": "departments:read",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_workflows",
+        "description": "List the organization's configured automation workflows, active or not.",
+        "scope": "workflows:read",
+        "inputSchema": {"type": "object", "properties": {"active_only": {"type": "boolean"}}},
+    },
+    {
+        "name": "execute_workflow",
+        "description": (
+            "Start a workflow execution. If the workflow reaches an 'approval' node it "
+            "STOPS there exactly like a run stops at the deploy gate — this tool grants "
+            "no approval authority. A human (or a separately-scoped caller) must act on "
+            "the resulting Work item through the normal approval path; there is no "
+            "'approve_workflow' MCP tool."
+        ),
+        "scope": "workflows:execute",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "workflow_id": {"type": "string"},
+                "initial_context": {"type": "object", "description": "Seed values for the execution's context."},
+            },
+            "required": ["workflow_id"],
         },
     },
     {
@@ -318,6 +390,116 @@ def _tool_approve_run(db: Session, key: ApiKey, args: dict) -> Any:
     return {**_run_out(run), "decision": decision, "recorded_against": key.prefix}
 
 
+def _require_org_key(key: ApiKey) -> uuid.UUID:
+    """Company OS surfaces (Work/Department/Workflow) are org-scoped
+    concepts, same as the web app's X-Org-ID requirement — a personal-
+    workspace key (no org_id) has no departments/workflows to see."""
+    if not key.org_id:
+        raise ToolError("This API key has no organization — Company OS tools require an org-scoped key.")
+    return key.org_id
+
+
+def _tool_list_work(db: Session, key: ApiKey, args: dict) -> Any:
+    org_id = _require_org_key(key)
+    limit = min(int(args.get("limit") or 20), 100)
+    q = db.query(Work).filter(Work.organization_id == org_id)
+    if args.get("status"):
+        q = q.filter(Work.status == args["status"])
+    if args.get("department_id"):
+        q = q.filter(Work.department_id == _as_uuid(args["department_id"]))
+    rows = q.order_by(Work.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": str(w.id), "title": w.title, "type": w.type, "status": w.status,
+            "department_id": str(w.department_id) if w.department_id else None,
+            "team_id": str(w.team_id) if w.team_id else None,
+            "priority": w.priority, "created_at": w.created_at.isoformat() if w.created_at else None,
+        }
+        for w in rows
+    ]
+
+
+def _tool_create_work(db: Session, key: ApiKey, args: dict) -> Any:
+    org_id = _require_org_key(key)
+    title = (args.get("title") or "").strip()
+    if not title:
+        raise ToolError("title is required.")
+
+    department_id = _as_uuid(args.get("department_id"))
+    if department_id and not db.query(Department).filter(
+        Department.id == department_id, Department.organization_id == org_id,
+    ).first():
+        raise ToolError("department_id does not belong to this organization.")
+
+    work = Work(
+        organization_id=org_id,
+        department_id=department_id,
+        team_id=_as_uuid(args.get("team_id")),
+        requester_user_id=key.user_id,
+        type=args.get("type") or "generic_request",
+        title=title,
+        description=args.get("description"),
+        priority=args.get("priority"),
+        status="new",
+    )
+    db.add(work)
+    db.commit()
+    db.refresh(work)
+    return {"id": str(work.id), "title": work.title, "status": work.status,
+            "note": "Created via MCP, recorded against this API key's owner."}
+
+
+def _tool_list_departments(db: Session, key: ApiKey, args: dict) -> Any:
+    org_id = _require_org_key(key)
+    from app.models.department import Team
+
+    depts = db.query(Department).filter(Department.organization_id == org_id).all()
+    teams_by_dept: dict[str, list] = {}
+    for t in db.query(Team).filter(Team.organization_id == org_id).all():
+        teams_by_dept.setdefault(str(t.department_id), []).append({"id": str(t.id), "name": t.name})
+    return [
+        {"id": str(d.id), "name": d.name, "slug": d.slug, "status": d.status,
+         "teams": teams_by_dept.get(str(d.id), [])}
+        for d in depts
+    ]
+
+
+def _tool_list_workflows(db: Session, key: ApiKey, args: dict) -> Any:
+    org_id = _require_org_key(key)
+    q = db.query(Workflow).filter(Workflow.organization_id == org_id)
+    if args.get("active_only"):
+        q = q.filter(Workflow.is_active.is_(True))
+    return [
+        {"id": str(w.id), "name": w.name, "trigger_type": w.trigger_type,
+         "is_active": w.is_active, "version": w.version}
+        for w in q.order_by(Workflow.name.asc()).all()
+    ]
+
+
+def _tool_execute_workflow(db: Session, key: ApiKey, args: dict) -> Any:
+    org_id = _require_org_key(key)
+    wf = db.query(Workflow).filter(
+        Workflow.id == _as_uuid(args.get("workflow_id")), Workflow.organization_id == org_id,
+    ).first()
+    if not wf:
+        raise ToolError("No workflow with that id is visible to this API key.")
+    if not wf.is_active:
+        raise ToolError(f"Workflow '{wf.name}' is not active.")
+
+    execution: WorkflowExecution = workflow_engine.start_execution(
+        db, wf, initial_context=args.get("initial_context") or {},
+    )
+    return {
+        "id": str(execution.id), "status": execution.status,
+        "current_node_id": execution.current_node_id,
+        "note": (
+            "Stopped at an approval gate — no approval authority was granted by this "
+            "call." if execution.status == "awaiting_approval" else
+            "Execution dispatched."
+        ),
+    }
+
+
 def _tool_read_url(db: Session, key: ApiKey, args: dict) -> Any:
     try:
         result = reader_service.read_url(str(args.get("url") or ""))
@@ -337,6 +519,11 @@ HANDLERS: dict[str, Callable[[Session, ApiKey, dict], Any]] = {
     "start_run": _tool_start_run,
     "list_pending_approvals": _tool_list_pending_approvals,
     "approve_run": _tool_approve_run,
+    "list_work": _tool_list_work,
+    "create_work": _tool_create_work,
+    "list_departments": _tool_list_departments,
+    "list_workflows": _tool_list_workflows,
+    "execute_workflow": _tool_execute_workflow,
     "read_url": _tool_read_url,
 }
 

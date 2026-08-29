@@ -6,6 +6,7 @@ from app.routers import auth, connections, skills, agents, pods, projects, ticke
 from app.routers import dashboard, settings as settings_router
 from app.routers import billing, notifications, insights, governance, catalog, memory, public_api, mcp, sprint
 from app.routers import workspace, integrations
+from app.routers import departments, teams, work, desk, workflows, company_apis, tool_grants, company_dashboard
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
 
@@ -57,6 +58,27 @@ fastapi_app.include_router(public_api.router,     prefix="/v1",            tags=
 # the spec's convention is a bare /mcp. It is versioned by protocolVersion in
 # the handshake, not by a path segment.
 fastapi_app.include_router(mcp.router,            prefix="",               tags=["mcp"])
+
+# ── Phase 13: Company OS foundation ────────────────────────────────────────
+# Departments, teams and generic Work requests — the org-chart and non-
+# engineering work layer laid on top of the existing org/RBAC foundation.
+# Engineering keeps running through projects/tickets/runs entirely
+# unchanged; these are additive, org-scoped resources alongside it.
+fastapi_app.include_router(departments.router,    prefix="/departments",   tags=["departments"])
+# teams.py declares its own routes as "/{department_id}/teams/..." so a team's
+# URL nests under its department (/departments/{id}/teams/...) — same prefix
+# as departments.router, a second APIRouter rather than one file for two
+# related-but-distinct resources.
+fastapi_app.include_router(teams.router,          prefix="/departments",   tags=["teams"])
+fastapi_app.include_router(work.router,           prefix="/work",          tags=["work"])
+fastapi_app.include_router(desk.router,           prefix="/desk",          tags=["desk"])
+fastapi_app.include_router(workflows.router,      prefix="/workflows",     tags=["workflows"])
+# BYO API integration registry (step 12) — root-mounted since its own paths
+# are already namespaced under /company-apis.
+fastapi_app.include_router(company_apis.router,   prefix="",               tags=["company-apis"])
+# Tool grants (step 11) — the allow-list gating plugin/company-API usage.
+fastapi_app.include_router(tool_grants.router,    prefix="",               tags=["tool-grants"])
+fastapi_app.include_router(company_dashboard.router, prefix="",            tags=["company-dashboard"])
 
 
 @fastapi_app.get("/health")

@@ -22,7 +22,10 @@ export function useCreateOrg() {
 export function useUpdateOrg() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...data }: { id: string; name?: string; avatar_url?: string }) =>
+    mutationFn: ({ id, ...data }: {
+      id: string; name?: string; avatar_url?: string
+      industry?: string; company_size?: string; description?: string
+    }) =>
       api.put(`/orgs/${id}`, data).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: KEY }),
   })

@@ -29,11 +29,14 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.models.agent import Agent
+from app.models.department import Department, Team
 from app.models.pod import Pod, PodAgent
 from app.models.project import Project
 from app.models.run import Run
 from app.models.ticket import Ticket
 from app.models.user import User
+from app.models.work import Work
+from app.models.workflow import Workflow, WorkflowExecution
 from app.models.workspace import Channel, Message
 from app.services import org_roles
 from app.services import workspace_service as ws
@@ -102,6 +105,59 @@ def _add_pod_agents(db: Session, channel: Channel, project: Project) -> None:
     )
     for agent in rows:
         ws.ensure_member(db, channel, agent_id=agent.id, role="member")
+
+
+def channel_for_department(db: Session, department: Department, *, created_by=None) -> Channel:
+    """
+    Find or create the channel for a department. Same lazy-on-first-need
+    shape as `channel_for_project` — a department that predates this feature,
+    or one created before workspace was ever touched, still gets a channel
+    the first time it needs one (a mention dispatch, or department creation
+    itself, which calls this eagerly — see routers/departments.py).
+    """
+    existing = db.query(Channel).filter(Channel.department_id == department.id, Channel.team_id.is_(None)).first()
+    if existing:
+        return existing
+
+    ch = Channel(
+        user_id=created_by or department.head_user_id,
+        org_id=department.organization_id,
+        kind="channel",
+        name=department.name,
+        slug=ws.slugify(f"dept-{department.name}"),
+        topic=f"Work, workflows and updates for {department.name}.",
+        department_id=department.id,
+        created_by=created_by or department.head_user_id,
+    )
+    db.add(ch)
+    db.commit()
+    db.refresh(ch)
+    if department.head_user_id:
+        ws.ensure_member(db, ch, user_id=department.head_user_id, role="owner")
+    return ch
+
+
+def channel_for_team(db: Session, team: Team, *, created_by=None) -> Channel:
+    """Find or create the channel for a team. Same shape as `channel_for_department`."""
+    existing = db.query(Channel).filter(Channel.team_id == team.id).first()
+    if existing:
+        return existing
+
+    ch = Channel(
+        user_id=created_by,
+        org_id=team.organization_id,
+        kind="channel",
+        name=team.name,
+        slug=ws.slugify(f"team-{team.name}"),
+        topic=f"Work and updates for {team.name}.",
+        department_id=team.department_id,
+        team_id=team.id,
+        created_by=created_by,
+    )
+    db.add(ch)
+    db.commit()
+    db.refresh(ch)
+    return ch
 
 
 def default_deploys_channel(db: Session, *, user_id, org_id) -> Channel | None:
@@ -182,6 +238,90 @@ def narrate_run_event(db: Session, run_id, event: str, data: dict | None = None)
         )
     except Exception:
         log.exception("Could not narrate %s for run %s", event, run_id)
+        return None
+
+
+# ── Workflow narration (steps 15-16 item 3) ────────────────────────────────────
+#
+# Same shape as `narrate_run_event` on purpose — a `WorkflowExecution` status
+# change is narrated into whichever channel the linked Work item (or, failing
+# that, the workflow's department) owns, exactly the way a Run's status change
+# is narrated into its project's channel. Best-effort by the same rule: a
+# failure to post a chat message must never fail a workflow step.
+
+WORKFLOW_NARRATED = {
+    "workflow:started": ("Workflow started", "info"),
+    "workflow:awaiting_approval": ("Waiting for approval", "warning"),
+    "workflow:human_task": ("Waiting on a person", "warning"),
+    "workflow:completed": ("Workflow completed", "success"),
+    "workflow:failed": ("Workflow failed", "critical"),
+}
+
+
+def _channel_for_execution(db: Session, execution: WorkflowExecution, workflow: Workflow) -> Channel | None:
+    """
+    The channel a workflow execution's narration belongs in: the Work item's
+    department/team channel if it has one, otherwise the workflow's own
+    department channel, otherwise nothing (no channel to narrate into, which
+    is a normal state for a department-less org-wide workflow).
+    """
+    # Channel.user_id is NOT NULL (the "creator" convention every channel in
+    # this codebase has); the workflow's own creator is always a safe
+    # fallback so a department with no head_user_id yet still gets a channel.
+    fallback_creator = workflow.created_by
+
+    if execution.work_id:
+        work = db.query(Work).filter(Work.id == execution.work_id).first()
+        if work:
+            if work.team_id:
+                team = db.query(Team).filter(Team.id == work.team_id).first()
+                if team:
+                    dept = db.query(Department).filter(Department.id == team.department_id).first()
+                    creator = (dept.head_user_id if dept and dept.head_user_id else None) or fallback_creator
+                    return channel_for_team(db, team, created_by=creator)
+            if work.department_id:
+                dept = db.query(Department).filter(Department.id == work.department_id).first()
+                if dept:
+                    return channel_for_department(db, dept, created_by=dept.head_user_id or fallback_creator)
+    if workflow.department_id:
+        dept = db.query(Department).filter(Department.id == workflow.department_id).first()
+        if dept:
+            return channel_for_department(db, dept, created_by=dept.head_user_id or fallback_creator)
+    return None
+
+
+def narrate_workflow_event(db: Session, execution_id, event: str, data: dict | None = None) -> Message | None:
+    """Post a workflow execution status change into the channel that owns the work."""
+    if event not in WORKFLOW_NARRATED:
+        return None
+    try:
+        execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+        if not execution:
+            return None
+        workflow = db.query(Workflow).filter(Workflow.id == execution.workflow_id).first()
+        if not workflow:
+            return None
+        channel = _channel_for_execution(db, execution, workflow)
+        if not channel:
+            return None
+
+        title, severity = WORKFLOW_NARRATED[event]
+        body = f"{title} — {workflow.name}"
+        if event == "workflow:failed" and execution.error:
+            body += f"\n{execution.error[:300]}"
+
+        kind = "approval_request" if event == "workflow:awaiting_approval" else "system"
+        return ws.post_message(
+            db, channel=channel, body=body, kind=kind,
+            payload={
+                "event": event, "execution_id": str(execution.id),
+                "workflow_id": str(workflow.id), "severity": severity,
+                "status": execution.status, **(data or {}),
+            },
+            notify=(kind == "approval_request"),
+        )
+    except Exception:
+        log.exception("Could not narrate %s for workflow execution %s", event, execution_id)
         return None
 
 
@@ -302,6 +442,107 @@ def dispatch_agent_mention(
         notify=False,
     )
     return [{"run_id": str(run.id), "ticket": ticket.jira_id, "status": run.status}]
+
+
+# ── @department / @team mentions → generic Work (steps 15-16 item 2) ──────────
+#
+# Deterministic only, per the spec: an explicit `@deptname` or `@teamname`
+# token resolved against that org's own Department/Team slugs and names,
+# never free-form NLU over the rest of the sentence. `@sales please follow up
+# with Acme` creates a Work item titled from the message text, routes it
+# through the same `routing_service.route_work` a manually-created Work item
+# goes through (explicit department always wins there too), and replies in
+# the channel with what was created and where it landed — the same
+# "narrate exactly what happened" convention `dispatch_agent_mention` follows.
+
+_MENTION_TOKEN_RE = re.compile(r"@([a-zA-Z][a-zA-Z0-9_-]*)")
+
+
+def resolve_dept_team_mentions(db: Session, text: str, org_id) -> list:
+    """
+    Every Department/Team whose slug or name an @token in `text` matches
+    exactly (case-insensitive), in org `org_id`. Deterministic exact match —
+    no fuzzy matching, no substring guessing at what a human might have meant.
+    """
+    if not org_id:
+        return []
+    tokens = {m.group(1).lower() for m in _MENTION_TOKEN_RE.finditer(text or "")}
+    if not tokens:
+        return []
+
+    hits: list = []
+    depts = db.query(Department).filter(Department.organization_id == org_id, Department.status == "active").all()
+    for d in depts:
+        if d.slug.lower() in tokens or (d.name or "").lower() in tokens:
+            hits.append(("department", d))
+    teams = db.query(Team).filter(Team.organization_id == org_id, Team.status == "active").all()
+    for t in teams:
+        if t.slug.lower() in tokens or (t.name or "").lower() in tokens:
+            hits.append(("team", t))
+    return hits
+
+
+def dispatch_department_mention(
+    db: Session, *, channel: Channel, message: Message, current_user: User, org_ctx,
+) -> list[dict]:
+    """
+    An @department or @team was mentioned in a message. Create a Work item
+    from the message text, route it (explicit department/team from the
+    mention always wins, same as a manually-filled Work.department_id), and
+    reply in the channel with what happened. Read-only members can talk but
+    not spend the org's quota — same rule `dispatch_agent_mention` enforces.
+    """
+    if not org_ctx or not org_ctx.org_id:
+        return []
+    hits = resolve_dept_team_mentions(db, message.body, org_ctx.org_id)
+    if not hits:
+        return []
+    if not org_roles.can_write(org_ctx.role):
+        _reply(db, channel, message, "You have read-only access and can't open a work request.")
+        return []
+
+    from app.services.routing_service import route_work
+
+    created = []
+    # De-dup: a message mentioning both a team and its own department should
+    # not open two Work items for the same request.
+    seen_dept_ids = set()
+    for kind, obj in hits:
+        dept_id = obj.id if kind == "department" else obj.department_id
+        if dept_id in seen_dept_ids:
+            continue
+        seen_dept_ids.add(dept_id)
+
+        work = Work(
+            organization_id=org_ctx.org_id,
+            department_id=dept_id if kind == "department" else obj.department_id,
+            team_id=obj.id if kind == "team" else None,
+            requester_user_id=current_user.id,
+            type="chat_request",
+            title=(message.body or "").strip()[:500] or f"Request from #{channel.name or 'chat'}",
+            status="new",
+        )
+        decision = route_work(db, work)
+        # The mention itself is the explicit routing signal, so it always
+        # wins — `route_work` returns "explicit" unchanged whenever
+        # department_id is already set, which it is here.
+        work.routing_confidence = decision.confidence
+        work.routing_reasoning = decision.reasoning or f"Routed by explicit @{obj.slug} mention in chat."
+        db.add(work)
+        db.commit()
+        db.refresh(work)
+
+        target_channel = channel_for_team(db, obj, created_by=current_user.id) if kind == "team" else \
+            channel_for_department(db, obj, created_by=current_user.id)
+        label = f"team {obj.name}" if kind == "team" else f"department {obj.name}"
+        _reply(
+            db, channel, message,
+            f"Opened work item **{work.title[:80]}** for {label}"
+            + (f" — see #{target_channel.slug}" if target_channel and target_channel.id != channel.id else "."),
+        )
+        created.append({"work_id": str(work.id), "department_id": str(work.department_id) if work.department_id else None,
+                        "team_id": str(work.team_id) if work.team_id else None, "kind": kind})
+    return created
 
 
 def _reply(db: Session, channel: Channel, parent: Message, body: str) -> Message:

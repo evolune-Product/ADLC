@@ -36,7 +36,17 @@ from app.services.policy_service import DEFAULT_POLICY
 
 router = APIRouter()
 
-API_KEY_SCOPES = ["runs:read", "runs:write", "runs:approve", "projects:read", "analytics:read"]
+API_KEY_SCOPES = [
+    "runs:read", "runs:write", "runs:approve", "projects:read", "analytics:read",
+    # Company OS (step 13) — same split as runs:write / runs:approve:
+    # workflows:execute never implies approval authority. A workflow that
+    # reaches an `approval` node still gates through Work's own status
+    # machine (see workflow_engine.py), the same real approval record a
+    # human uses from the UI — no separate approve-via-MCP path exists for
+    # workflow approvals, so there is no matching "workflows:approve" scope
+    # to omit here; the gate is structural, not a missing scope.
+    "work:read", "work:write", "departments:read", "workflows:read", "workflows:execute",
+]
 
 
 # ═══ Approval policies ════════════════════════════════════════════════════════
