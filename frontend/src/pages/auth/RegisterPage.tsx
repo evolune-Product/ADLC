@@ -27,13 +27,11 @@ export default function RegisterPage() {
     try {
       const res = await api.post('/auth/register', data)
       login(res.data.access_token, res.data.user)
-      // A brand-new user has zero orgs (personal workspace only). Route them
-      // through onboarding rather than straight to /dashboard — it composes
-      // org creation, initial departments and inviting teammates, and its
-      // own first step lets them skip and stay solo, so nothing about the
-      // existing "no org" personal-workspace path is removed, only offered
-      // as a real path in addition to it.
-      navigate('/onboarding')
+      // Company OS's onboarding wizard (org + departments + invites) is kept
+      // in the codebase but not exposed as a feature yet — see
+      // pages/onboarding/OnboardingPage.tsx. Straight to the dashboard, same
+      // as before that wizard existed.
+      navigate('/dashboard')
     } catch (err) {
       toast.error(getApiError(err, 'Registration failed'))
     }

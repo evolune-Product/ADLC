@@ -44,7 +44,7 @@ GATEWAYS = ("stripe", "razorpay", "paypal")
 
 
 class CheckoutBody(BaseModel):
-    plan: str = Field(..., description="team | growth | enterprise")
+    plan: str = Field(..., description="enterprise")
     gateway: str = Field("stripe", description="stripe | razorpay | paypal")
     seats: int = 1
 

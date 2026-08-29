@@ -48,6 +48,9 @@ export function ProjectWizard({ initial, onSave, loading }: Props) {
   // Step 3
   const [jiraConnectionId, setJiraConnectionId] = useState<string>(initial?.jira_connection_id ?? '')
   const [jiraProjectKey, setJiraProjectKey]     = useState(initial?.jira_project_key ?? '')
+  // "jira" | "github" | "gitlab" — the latter two reuse the repo connection
+  // from Step 2 rather than needing a separate tracker account.
+  const [ticketSource, setTicketSource] = useState(initial?.ticket_source ?? 'jira')
 
   // Step 4
   const [podId, setPodId]           = useState(initial?.pod_id ?? '')
@@ -59,6 +62,9 @@ export function ProjectWizard({ initial, onSave, loading }: Props) {
 
   const repoConnections  = connections.filter((c) => ['github', 'gitlab'].includes(c.type) && c.status === 'connected')
   const jiraConnections  = connections.filter((c) => c.type === 'jira' && c.status === 'connected')
+
+  const selectedRepoConn = repoConnections.find((c) => c.id === repoConnectionId)
+  const repoIssueLabel = selectedRepoConn?.type === 'gitlab' ? 'GitLab' : 'GitHub'
 
   const { data: repos = [], isFetching: fetchingRepos }               = useConnectionRepos(repoConnectionId || null)
   const { data: jiraProjects = [], isFetching: fetchingJiraProjects } = useConnectionJiraProjects(jiraConnectionId || null)
@@ -81,8 +87,9 @@ export function ProjectWizard({ initial, onSave, loading }: Props) {
       type: type || undefined,
       repo_connection_id: repoConnectionId || null,
       repo_name: repoName || null,
-      jira_connection_id: jiraConnectionId || null,
-      jira_project_key: jiraProjectKey || null,
+      jira_connection_id: ticketSource === 'jira' ? (jiraConnectionId || null) : null,
+      jira_project_key: ticketSource === 'jira' ? (jiraProjectKey || null) : null,
+      ticket_source: ticketSource,
       pod_id: podId || null,
       context_md: contextMd || undefined,
       deploy_targets: deployTargets.filter((dt) => dt.env && dt.branch),
@@ -219,41 +226,81 @@ export function ProjectWizard({ initial, onSave, loading }: Props) {
       {step === 2 && (
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <Label>Jira Connection</Label>
-            {jiraConnections.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No Jira connections found. You can skip this step.</p>
-            ) : (
-              <select
-                value={jiraConnectionId}
-                onChange={(e) => { setJiraConnectionId(e.target.value); setJiraProjectKey('') }}
-                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            <Label>Where do tickets come from?</Label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setTicketSource('jira')}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm text-left transition-colors ${
+                  ticketSource === 'jira' ? 'border-foreground bg-muted' : 'border-input hover:bg-muted/50'
+                }`}
               >
-                <option value="">Select connection…</option>
-                {jiraConnections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            )}
+                <p className="font-medium">Jira</p>
+                <p className="text-xs text-muted-foreground">A separate tracker connection.</p>
+              </button>
+              <button
+                type="button"
+                disabled={!repoConnectionId}
+                onClick={() => selectedRepoConn && setTicketSource(selectedRepoConn.type)}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                  ticketSource !== 'jira' ? 'border-foreground bg-muted' : 'border-input hover:bg-muted/50'
+                }`}
+              >
+                <p className="font-medium">{repoIssueLabel} Issues</p>
+                <p className="text-xs text-muted-foreground">
+                  {repoConnectionId
+                    ? 'Use the repo you already connected — no extra account needed.'
+                    : 'Connect a repo in Source Control first.'}
+                </p>
+              </button>
+            </div>
           </div>
 
-          {jiraConnectionId && (
-            <div className="space-y-1.5">
-              <Label>Jira Project</Label>
-              {fetchingJiraProjects ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Fetching projects…
+          {ticketSource === 'jira' ? (
+            <>
+              <div className="space-y-1.5">
+                <Label>Jira Connection</Label>
+                {jiraConnections.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No Jira connections found. You can skip this step.</p>
+                ) : (
+                  <select
+                    value={jiraConnectionId}
+                    onChange={(e) => { setJiraConnectionId(e.target.value); setJiraProjectKey('') }}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">Select connection…</option>
+                    {jiraConnections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                )}
+              </div>
+
+              {jiraConnectionId && (
+                <div className="space-y-1.5">
+                  <Label>Jira Project</Label>
+                  {fetchingJiraProjects ? (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Fetching projects…
+                    </div>
+                  ) : (
+                    <select
+                      value={jiraProjectKey}
+                      onChange={(e) => setJiraProjectKey(e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    >
+                      <option value="">Select project…</option>
+                      {jiraProjects.map((p) => (
+                        <option key={p.key} value={p.key}>{p.key} — {p.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
-              ) : (
-                <select
-                  value={jiraProjectKey}
-                  onChange={(e) => setJiraProjectKey(e.target.value)}
-                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                >
-                  <option value="">Select project…</option>
-                  {jiraProjects.map((p) => (
-                    <option key={p.key} value={p.key}>{p.key} — {p.name}</option>
-                  ))}
-                </select>
               )}
-            </div>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground rounded-md border border-border bg-muted/30 p-3">
+              Tickets will sync from <span className="font-medium text-foreground">{repoName || 'the connected repo'}</span>'s
+              {' '}{repoIssueLabel} issues. Open issues map to "To Do", closed ones to "Done".
+            </p>
           )}
 
           <div className="flex justify-between pt-2">
@@ -306,7 +353,9 @@ export function ProjectWizard({ initial, onSave, loading }: Props) {
               {deployTargets.filter((d) => d.env).length > 0 && (
                 <p><span className="text-foreground font-medium">Envs:</span> {deployTargets.filter((d) => d.env).map((d) => `${d.env}→${d.branch}`).join(', ')}</p>
               )}
-              {jiraProjectKey && <p><span className="text-foreground font-medium">Jira:</span> {jiraProjectKey}</p>}
+              {ticketSource === 'jira'
+                ? jiraProjectKey && <p><span className="text-foreground font-medium">Jira:</span> {jiraProjectKey}</p>
+                : <p><span className="text-foreground font-medium">Tickets:</span> {repoIssueLabel} issues</p>}
               {podId && <p><span className="text-foreground font-medium">Pod:</span> {pods.find((p) => p.id === podId)?.name}</p>}
             </div>
           </div>

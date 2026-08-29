@@ -68,10 +68,13 @@ services:
     ports:
       - "8000:8000"
     # Migrations run on boot so a fresh volume is usable without a manual step.
+    # Kept on one physical line deliberately: YAML's ">" folding only joins
+    # same-indentation lines with a space — a more-indented continuation (as
+    # this used to have) is preserved as a literal newline, which turns one
+    # `sh -c "..."` string into multiple shell statements and breaks the
+    # gunicorn flags onto their own (invalid) command.
     command: >
-      sh -c "alembic upgrade head &&
-             gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker
-             --workers 2 --bind 0.0.0.0:8000 --timeout 120 --access-logfile -"
+      sh -c "alembic upgrade head && gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --workers 2 --bind 0.0.0.0:8000 --timeout 120 --access-logfile -"
 
   worker:
     profiles: ["app"]
@@ -86,6 +89,23 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     command: celery -A celery_app worker --loglevel=info
+    # Override the backend image's baked-in HEALTHCHECK (curl localhost:8000) —
+    # this container runs Celery, not gunicorn, so nothing ever listens on
+    # 8000 here and that check would always report unhealthy.
+    #
+    # `celery inspect ping` looked like the "correct" liveness probe but is a
+    # round-trip through the control bus (broker) rather than a real liveness
+    # check, and proved flaky even run by hand against a worker whose logs
+    # already said "ready". `command:` above replaces the image's CMD with no
+    # shell wrapper, so PID 1 in this container *is* the celery process —
+    # checking that directly is simpler and doesn't depend on the control bus
+    # being responsive.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -q celery /proc/1/cmdline || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 
   beat:
     profiles: ["app"]
@@ -100,6 +120,15 @@ services:
     # Drives the nightly retention prune — a documented policy nobody executes
     # is an audit finding.
     command: celery -A celery_app beat --loglevel=info
+    # Same override reason as `worker` above. Beat has no "inspect ping"
+    # equivalent (it isn't a task-consuming worker) — the schedule file being
+    # written/updated is the cheapest real evidence the loop is alive.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f celerybeat-schedule || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   frontend:
     profiles: ["app"]

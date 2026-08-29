@@ -14,7 +14,7 @@ export default function AgentDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 max-w-2xl">
+      <div className="space-y-4 max-w-4xl">
         <div className="h-8 w-48 bg-muted animate-pulse rounded" />
         <div className="h-64 bg-muted animate-pulse rounded" />
       </div>
@@ -31,7 +31,7 @@ export default function AgentDetailPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => navigate('/agents')}>

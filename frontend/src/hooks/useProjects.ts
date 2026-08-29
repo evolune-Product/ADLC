@@ -36,6 +36,7 @@ export interface ProjectFormData {
   repo_name?: string | null
   jira_connection_id?: string | null
   jira_project_key?: string | null
+  ticket_source?: string
   pod_id?: string | null
   context_md?: string
   deploy_targets: DeployTargetInput[]

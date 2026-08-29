@@ -32,3 +32,30 @@ export function useSyncTickets(projectId: string) {
     },
   })
 }
+
+/**
+ * A human confirms the work is done and closes the ticket themselves — the
+ * platform never does this automatically (see writeback_service.close_ticket
+ * on the backend). Posts a comment naming who closed it and attempts a
+ * transition to the target status (default "Done").
+ */
+export function useCloseTicket(projectId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ticketId, note, status }: { ticketId: string; note?: string; status?: string }) =>
+      api.post(`/projects/${projectId}/tickets/${ticketId}/close`, { note, status })
+        .then((r) => r.data as Ticket & { commented: boolean; moved: boolean }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['tickets', projectId] })
+      qc.setQueryData(['tickets', projectId, data.id], data)
+      if (data.moved) {
+        toast.success(`Marked as ${data.status}`)
+      } else {
+        toast.warning('Comment posted, but the ticket could not be moved — check that a matching transition exists.')
+      }
+    },
+    onError: (err: { response?: { data?: { detail?: string } } }) => {
+      toast.error(err.response?.data?.detail ?? 'Could not close this ticket')
+    },
+  })
+}

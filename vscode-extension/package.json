@@ -5,6 +5,11 @@
   "version": "0.1.0",
   "publisher": "adlc",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/evolune-Product/ADLC.git",
+    "directory": "vscode-extension"
+  },
   "engines": { "vscode": "^1.85.0" },
   "categories": ["Other"],
   "activationEvents": [],
@@ -61,11 +66,13 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -w -p ./",
+    "vscode:prepublish": "npm run compile",
     "package": "vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
     "typescript": "^5.4.0"
   }
 }

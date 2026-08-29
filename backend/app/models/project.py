@@ -22,6 +22,11 @@ class Project(Base):
     repo_name: Mapped[str | None] = mapped_column(String(255))
     jira_connection_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("connections.id"))
     jira_project_key: Mapped[str | None] = mapped_column(String(50))
+    # "jira" | "github" | "gitlab" — when not "jira", tickets sync from the
+    # repo already on `repo_connection_id`/`repo_name` instead of a separate
+    # tracker connection, so a solo project doesn't need a Jira/Linear account
+    # just to try the pipeline.
+    ticket_source: Mapped[str] = mapped_column(String(20), default="jira", server_default="jira")
     pod_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("pods.id"))
     context_md: Mapped[str | None] = mapped_column(Text)
     deploy_targets: Mapped[list] = mapped_column(JSONB, default=list)

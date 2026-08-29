@@ -27,8 +27,6 @@ class Settings(BaseSettings):
     # deployment can enable Stripe only, Razorpay only, all three, or none).
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
-    stripe_price_team: str = ""
-    stripe_price_growth: str = ""
     stripe_price_enterprise: str = ""
 
     # Razorpay — the India rail. UPI/cards/netbanking domestically, bank
@@ -40,8 +38,6 @@ class Settings(BaseSettings):
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
     razorpay_webhook_secret: str = ""
-    razorpay_plan_team: str = ""
-    razorpay_plan_growth: str = ""
     razorpay_plan_enterprise: str = ""
 
     # PayPal — the rail for a buyer with no corporate card program but a PayPal
@@ -52,8 +48,6 @@ class Settings(BaseSettings):
     paypal_client_secret: str = ""
     paypal_webhook_id: str = ""
     paypal_mode: str = "sandbox"        # sandbox | live
-    paypal_plan_team: str = ""
-    paypal_plan_growth: str = ""
     paypal_plan_enterprise: str = ""
 
     # Email (SMTP — works with SES/Postmark/Resend/corporate relay)

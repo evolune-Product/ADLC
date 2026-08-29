@@ -11,6 +11,16 @@ export function useOrgs() {
   })
 }
 
+/** Whether the current user's own (non-org) plan allows creating an
+ *  organization — Enterprise only. Drives whether "Create organization"
+ *  appears at all, rather than showing it and failing on submit. */
+export function useCanCreateOrg() {
+  return useQuery<{ allowed: boolean }>({
+    queryKey: ['orgs', 'can-create'],
+    queryFn: () => api.get('/orgs/can-create').then((r) => r.data),
+  })
+}
+
 export function useCreateOrg() {
   const qc = useQueryClient()
   return useMutation({

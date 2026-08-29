@@ -71,6 +71,39 @@ class GitLabClient:
             for p in rows
         ]
 
+    def list_issues(self, project: str) -> list[dict]:
+        """Issues on a project, mapped to the same shape
+        `jira_service.sync_tickets` returns. Unlike GitHub, GitLab's issues
+        endpoint never includes merge requests — those are a separate
+        resource — so there is no equivalent filtering to do."""
+        rows = self._request(
+            "GET", f"/projects/{self._pid(project)}/issues",
+            params={"state": "all", "per_page": 100, "order_by": "updated_at"},
+        ) or []
+        results = []
+        for issue in rows:
+            labels = {str(l).lower() for l in (issue.get("labels") or [])}
+            if "bug" in labels:
+                issue_type = "bug"
+            elif labels & {"enhancement", "feature"}:
+                issue_type = "feature"
+            else:
+                issue_type = "task"
+            results.append({
+                "jira_id": f"GL-{issue['iid']}",
+                "title": issue.get("title", ""),
+                "description": issue.get("description") or "",
+                "type": issue_type,
+                # GitLab priority lives in optional label conventions
+                # (e.g. "priority::high"), not a native field.
+                "priority": "medium",
+                "status": "Done" if issue.get("state") == "closed" else "To Do",
+                "assignee": (issue.get("assignee") or {}).get("username") or "",
+                "jira_url": issue.get("web_url", ""),
+                "raw_payload": issue,
+            })
+        return results
+
     def default_branch(self, project: str) -> str:
         return (self._request("GET", f"/projects/{self._pid(project)}") or {}).get("default_branch") or "main"
 

@@ -22,7 +22,11 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
+# 127.0.0.1, not localhost: busybox wget on Alpine resolves "localhost" to
+# ::1 first, and nginx's "listen 80" here binds IPv4 only — that mismatch
+# makes the healthcheck fail with "Connection refused" even though the
+# server is up and reachable from outside the container.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD wget -qO- http://localhost/ >/dev/null || exit 1
+  CMD wget -qO- http://127.0.0.1/ >/dev/null || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
