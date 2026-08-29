@@ -21,6 +21,14 @@ class OrgCreate(BaseModel):
 class OrgUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     avatar_url: Optional[str] = None
+    # Company-profile fields — additive, all optional so an update that only
+    # touches `name` keeps behaving exactly as it did before these existed.
+    industry: Optional[str] = Field(None, max_length=100)
+    company_size: Optional[str] = Field(None, max_length=50)
+    timezone: Optional[str] = Field(None, max_length=64)
+    default_locale: Optional[str] = Field(None, max_length=16)
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
 
 
 class OrgOut(BaseModel):
@@ -29,6 +37,12 @@ class OrgOut(BaseModel):
     slug: str
     avatar_url: Optional[str] = None
     created_by: uuid.UUID
+    industry: Optional[str] = None
+    company_size: Optional[str] = None
+    timezone: str = "UTC"
+    default_locale: str = "en-US"
+    description: Optional[str] = None
+    logo_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     role: Optional[str] = None  # populated by query join
