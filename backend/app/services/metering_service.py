@@ -40,6 +40,22 @@ PLANS: dict[str, dict] = {
         "features": ["1 project", "25 runs/mo", "BYO LLM key", "community skills"],
         "requires_byo_key": True,
     },
+    "pro": {
+        # Same limits as Free — this is deliberately a paid tier with no real
+        # differentiation yet, added to have a paid entry point before actual
+        # feature gating lands in a later phase. Do not invent a differentiator
+        # here that isn't real; the honest story is "same product, you're
+        # paying for it" until that work is done.
+        "name": "Pro",
+        "price_cents": 10000,
+        "included_runs": 25,
+        "overage_cents_per_run": 0,
+        "seats": 1,
+        "max_projects": 1,
+        "run_budget_cents": 60,
+        "features": ["1 project", "25 runs/mo", "BYO LLM key", "community skills"],
+        "requires_byo_key": True,
+    },
     "enterprise": {
         "name": "Enterprise",
         "price_cents": 500000,
@@ -62,7 +78,7 @@ PLANS: dict[str, dict] = {
     },
 }
 
-PLAN_ORDER = ["free", "enterprise"]
+PLAN_ORDER = ["free", "pro", "enterprise"]
 
 
 @dataclass

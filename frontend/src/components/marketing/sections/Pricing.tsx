@@ -20,7 +20,7 @@ export function PricingPlans({ compact = false }: { compact?: boolean }) {
   const [currency, setCurrency] = useState<Currency>('usd')
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <div className="mx-auto max-w-5xl">
       {compact ? null : (
         <div className="mb-5 flex items-center justify-end gap-1">
           <span className="mk-mono mr-2 text-[10.5px] uppercase tracking-[0.14em] text-[var(--mk-ink-3)]">
@@ -46,7 +46,7 @@ export function PricingPlans({ compact = false }: { compact?: boolean }) {
       <div
         className={cn(
           'grid gap-px overflow-hidden rounded-2xl border border-[var(--mk-hairline)] bg-[var(--mk-hairline)]',
-          'grid-cols-1 sm:grid-cols-2',
+          'grid-cols-1 sm:grid-cols-3',
         )}
       >
       {PLANS.map((plan, i) => (
@@ -198,48 +198,48 @@ export function PricingNotes() {
 
 /* ─────────────────────────────────────────────────────── comparison table */
 
-type Row = { feature: string; values: [string | boolean, string | boolean] }
+type Row = { feature: string; values: [string | boolean, string | boolean, string | boolean] }
 
 const COMPARISON: Array<{ group: string; rows: Row[] }> = [
   {
     group: 'Running work',
     rows: [
-      { feature: 'Included runs per month', values: ['25', 'Custom'] },
-      { feature: 'Overage per run', values: ['—', 'Committed'] },
-      { feature: 'Projects', values: ['1', 'Unlimited'] },
-      { feature: 'Agent pipeline with approval gate', values: [true, true] },
-      { feature: 'Multi-environment promotion', values: [false, true] },
+      { feature: 'Included runs per month', values: ['25', '25', 'Custom'] },
+      { feature: 'Overage per run', values: ['—', '—', 'Committed'] },
+      { feature: 'Projects', values: ['1', '1', 'Unlimited'] },
+      { feature: 'Agent pipeline with approval gate', values: [true, true, true] },
+      { feature: 'Multi-environment promotion', values: [false, false, true] },
     ],
   },
   {
     group: 'Governance',
     rows: [
-      { feature: 'Approval policies', values: [false, true] },
-      { feature: 'Reviewer agent and findings', values: [false, true] },
-      { feature: 'Per-environment policy scoping', values: [false, true] },
-      { feature: 'Two-approver policies and RBAC', values: [false, true] },
-      { feature: 'Audit log', values: ['30 days', 'Configurable'] },
-      { feature: 'Compliance evidence export', values: [false, true] },
+      { feature: 'Approval policies', values: [false, false, true] },
+      { feature: 'Reviewer agent and findings', values: [false, false, true] },
+      { feature: 'Per-environment policy scoping', values: [false, false, true] },
+      { feature: 'Two-approver policies and RBAC', values: [false, false, true] },
+      { feature: 'Audit log', values: ['30 days', '30 days', 'Configurable'] },
+      { feature: 'Compliance evidence export', values: [false, false, true] },
     ],
   },
   {
     group: 'Intelligence',
     rows: [
-      { feature: 'Skills and pods', values: [true, true] },
-      { feature: 'Template library', values: [true, true] },
-      { feature: 'Codebase memory', values: [false, true] },
-      { feature: 'Marketplace publishing', values: [false, true] },
-      { feature: 'ROI analytics and scorecards', values: [false, true] },
+      { feature: 'Skills and pods', values: [true, true, true] },
+      { feature: 'Template library', values: [true, true, true] },
+      { feature: 'Codebase memory', values: [false, false, true] },
+      { feature: 'Marketplace publishing', values: [false, false, true] },
+      { feature: 'ROI analytics and scorecards', values: [false, false, true] },
     ],
   },
   {
     group: 'Platform',
     rows: [
-      { feature: 'Bring your own model key', values: ['Required', true] },
-      { feature: 'Public API and signed webhooks', values: [false, true] },
-      { feature: 'Slack and email notifications', values: [false, true] },
-      { feature: 'Self-hosted or VPC', values: [false, true] },
-      { feature: 'SLA and named contact', values: [false, true] },
+      { feature: 'Bring your own model key', values: ['Required', 'Required', true] },
+      { feature: 'Public API and signed webhooks', values: [false, false, true] },
+      { feature: 'Slack and email notifications', values: [false, false, true] },
+      { feature: 'Self-hosted or VPC', values: [false, false, true] },
+      { feature: 'SLA and named contact', values: [false, false, true] },
     ],
   },
 ]
@@ -263,7 +263,7 @@ export function PricingComparison() {
           {COMPARISON.map((section) => (
             <Fragment key={section.group}>
               <tr>
-                <td colSpan={3} className="pb-2 pt-8">
+                <td colSpan={4} className="pb-2 pt-8">
                   <div className="mk-eyebrow text-[var(--mk-ember-lit)]">{section.group}</div>
                 </td>
               </tr>

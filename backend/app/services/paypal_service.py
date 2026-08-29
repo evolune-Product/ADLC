@@ -81,6 +81,7 @@ def _access_token() -> str:
 
 def plan_id_for(plan: str) -> str | None:
     return {
+        "pro": settings.paypal_plan_pro,
         "enterprise": settings.paypal_plan_enterprise,
     }.get(plan)
 
@@ -91,7 +92,8 @@ def _reverse_plan_lookup(plan_id: str) -> str | None:
     generic key-value bag to stash our own plan name in. `custom_id` holds
     exactly one string and it is already spent on `owner_key`, so the plan
     name has to be recovered by reversing the id we minted it from."""
-    for plan, pid in (("enterprise", settings.paypal_plan_enterprise),):
+    for plan, pid in (("pro", settings.paypal_plan_pro),
+                      ("enterprise", settings.paypal_plan_enterprise)):
         if pid and pid == plan_id:
             return plan
     return None

@@ -219,6 +219,29 @@ export const PLANS: Plan[] = [
     ctaTo: '/register',
   },
   {
+    id: 'pro',
+    name: 'Pro',
+    price: '$100',
+    priceUsd: 100,
+    cadence: 'per month',
+    // Honest, not a sales pitch: there is no real differentiation from Free
+    // yet. Do not add a claim here that isn't built — see the plan's own
+    // comment in metering_service.py.
+    summary: 'Same limits as Free today — expanded capacity is coming.',
+    runs: '25 runs / month',
+    overage: 'Hard stop — no surprise bill',
+    seats: '1 seat',
+    features: [
+      '1 project',
+      'Community skills and templates',
+      'Full agent pipeline with approval gate',
+      'GitHub or GitLab connection',
+      'Bring-your-own LLM key (required)',
+    ],
+    cta: 'Start Pro',
+    ctaTo: '/register',
+  },
+  {
     id: 'enterprise',
     name: 'Enterprise',
     price: '$5,000',

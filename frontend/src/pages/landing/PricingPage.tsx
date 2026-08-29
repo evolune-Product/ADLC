@@ -42,7 +42,7 @@ export default function PricingPage() {
     <div className="mk-root relative min-h-screen bg-[var(--mk-ground)] text-[var(--mk-ink)]">
       <Seo
         title="Pricing — ADLC"
-        description="Free forever on your own model key. Enterprise is $5,000/mo for 25 seats and unlimited runs. Runs are the meter, seats are the governance — and every run has an enforced budget cap."
+        description="Free forever on your own model key, Pro at $100/mo, or Enterprise at $5,000/mo for 25 seats and unlimited runs. Runs are the meter, seats are the governance — and every run has an enforced budget cap."
         path="/pricing"
       />
       <Atmosphere />

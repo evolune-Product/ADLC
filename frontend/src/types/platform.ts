@@ -1,5 +1,5 @@
 // ─── Billing ─────────────────────────────────────────────────────────────────
-export type PlanKey = 'free' | 'enterprise'
+export type PlanKey = 'free' | 'pro' | 'enterprise'
 
 export interface Plan {
   key: PlanKey

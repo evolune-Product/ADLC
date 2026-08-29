@@ -62,6 +62,7 @@ def _auth() -> tuple[str, str]:
 
 def plan_id_for(plan: str) -> str | None:
     return {
+        "pro": settings.razorpay_plan_pro,
         "enterprise": settings.razorpay_plan_enterprise,
     }.get(plan)
 

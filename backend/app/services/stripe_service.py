@@ -28,6 +28,7 @@ def _client():
 
 def price_id_for(plan: str) -> str | None:
     return {
+        "pro": settings.stripe_price_pro,
         "enterprise": settings.stripe_price_enterprise,
     }.get(plan)
 

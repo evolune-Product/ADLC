@@ -23,7 +23,7 @@ class Subscription(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     org_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
 
-    plan: Mapped[str] = mapped_column(String(50), default="free")          # free | team | growth | enterprise
+    plan: Mapped[str] = mapped_column(String(50), default="free")          # free | pro | enterprise
     status: Mapped[str] = mapped_column(String(50), default="active")      # active | past_due | canceled | trialing
     seats: Mapped[int] = mapped_column(Integer, default=1)
 
