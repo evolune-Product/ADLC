@@ -41,7 +41,7 @@ export function Hero({
   ]
 
   return (
-    <section className="relative flex min-h-[100svh] flex-col justify-center pb-8 pt-24 sm:pt-28">
+    <section className="relative pb-8 pt-24 sm:pt-28">
       {/* A single wash of heat behind the copy, so the type never sits on a
           flat black field. */}
       <div
