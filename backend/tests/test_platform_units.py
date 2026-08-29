@@ -87,24 +87,28 @@ class TestPlans:
     def test_every_ordered_plan_exists(self):
         assert set(PLAN_ORDER) == set(PLANS)
 
-    def test_overage_price_exceeds_worst_case_token_cost(self):
+    def test_no_metered_overage_in_the_two_tier_catalogue(self):
         """
-        The margin invariant. A complex run with retries can burn ~$1.15; an
-        overage priced below the per-run budget cap would make heavy usage
-        loss-making, which is exactly the trap the v1 pricing fell into.
+        The plan catalogue was simplified to free/enterprise only (team and
+        growth were removed when orgs were gated behind Enterprise) — there is
+        no metered mid-tier left to carry an overage-vs-budget margin
+        invariant. Both remaining plans are zero-overage, for different
+        reasons: free hard-stops rather than bills further, and enterprise is
+        unlimited runs governed by policy, not metered at all.
         """
-        for key in ("team", "growth"):
-            plan = PLANS[key]
-            assert plan["overage_cents_per_run"] > 0
-            assert plan["run_budget_cents"] > plan["overage_cents_per_run"]
+        for key in ("free", "enterprise"):
+            assert PLANS[key]["overage_cents_per_run"] == 0
 
     def test_free_tier_hard_stops(self):
         assert PLANS["free"]["overage_cents_per_run"] == 0
         assert PLANS["free"]["requires_byo_key"] is True
 
     def test_enterprise_is_unlimited(self):
+        # Unlimited *runs*, not unlimited seats — the plan's own feature copy
+        # says "25 seats, unlimited runs"; seats is an intentional cap, only
+        # included_runs uses the 0-means-unlimited convention.
         assert PLANS["enterprise"]["included_runs"] == 0
-        assert PLANS["enterprise"]["seats"] == 0
+        assert PLANS["enterprise"]["seats"] == 25
 
 
 # ═══ Review scoring ═══════════════════════════════════════════════════════════
@@ -1694,18 +1698,18 @@ class TestRazorpayEventParsing:
 class TestPayPalEventParsing:
     def test_subscription_activated_reverses_the_plan_id_to_a_plan_name(self):
         from app.services import paypal_service
-        paypal_service.settings.paypal_plan_team = "P-TEAM123"
+        paypal_service.settings.paypal_plan_enterprise = "P-ENT123"
         event = {
             "event_type": "BILLING.SUBSCRIPTION.ACTIVATED",
             "resource": {
-                "id": "I-ABC123", "plan_id": "P-TEAM123", "status": "ACTIVE",
+                "id": "I-ABC123", "plan_id": "P-ENT123", "status": "ACTIVE",
                 "custom_id": "user:5678",
                 "subscriber": {"payer_id": "payer_1"},
                 "billing_info": {"next_billing_time": "2026-09-26T10:00:00Z"},
             },
         }
         parsed = paypal_service.parse_event(event)
-        assert parsed["plan"] == "team"
+        assert parsed["plan"] == "enterprise"
         assert parsed["owner_key"] == "user:5678"
         assert parsed["status"] == "active"
         assert parsed["period_end"] == "2026-09-26T10:00:00Z"
@@ -1780,14 +1784,14 @@ class TestGatewaySimulatedFallback:
         from app.services import razorpay_service
         razorpay_service.settings.razorpay_key_id = ""
         razorpay_service.settings.razorpay_key_secret = ""
-        result = razorpay_service.create_subscription(plan="team", owner_key="org:1", email="a@b.com")
+        result = razorpay_service.create_subscription(plan="enterprise", owner_key="org:1", email="a@b.com")
         assert result["simulated"] is True and result["url"]
 
     def test_paypal_simulates_when_unconfigured(self):
         from app.services import paypal_service
         paypal_service.settings.paypal_client_id = ""
         paypal_service.settings.paypal_client_secret = ""
-        result = paypal_service.create_subscription(plan="team", owner_key="org:1", email="a@b.com")
+        result = paypal_service.create_subscription(plan="enterprise", owner_key="org:1", email="a@b.com")
         assert result["simulated"] is True and result["url"]
 
     def test_razorpay_refuses_the_free_plan(self):
