@@ -23,6 +23,10 @@ const NAV = [
       // first thing to see, same reasoning that put Workspace above "Build".
       { label: 'Desk',        to: '/desk',        icon: Inbox },
       { label: 'Dashboard',   to: '/dashboard',   icon: LayoutDashboard },
+      // "How is the company doing" — distinct from Desk ("what needs me right
+      // now") and from Dashboard (this user's projects/runs). See
+      // CompanyDashboardPage's module docstring.
+      { label: 'Company',     to: '/company',     icon: Building2 },
       // Above every group on purpose. The conversation is where a team starts
       // its day; burying it under "Build" is how a chat surface goes unused and
       // the WhatsApp group survives.

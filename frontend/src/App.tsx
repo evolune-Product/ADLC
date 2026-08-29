@@ -16,6 +16,7 @@ import GoogleCallbackPage from '@/pages/auth/GoogleCallbackPage'
 import GitHubCallbackPage from '@/pages/auth/GitHubCallbackPage'
 import SsoCallbackPage from '@/pages/auth/SsoCallbackPage'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
+import CompanyDashboardPage from '@/pages/dashboard/CompanyDashboardPage'
 import DeskPage from '@/pages/desk/DeskPage'
 import WorkflowsPage from '@/pages/workflows/WorkflowsPage'
 import NewWorkflowPage from '@/pages/workflows/NewWorkflowPage'
@@ -39,6 +40,7 @@ import RunDetailPage from '@/pages/runs/RunDetailPage'
 import AuditPage from '@/pages/audit/AuditPage'
 import SettingsPage from '@/pages/settings/SettingsPage'
 import NewOrgPage from '@/pages/org/NewOrgPage'
+import OnboardingPage from '@/pages/onboarding/OnboardingPage'
 import OrgSettingsPage from '@/pages/org/OrgSettingsPage'
 import OrgMembersPage from '@/pages/org/OrgMembersPage'
 import AcceptInvitePage from '@/pages/org/AcceptInvitePage'
@@ -155,6 +157,8 @@ export default function App() {
             <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
               <Route path="/desk" element={<DeskPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/company" element={<CompanyDashboardPage />} />
+              <Route path="/onboarding" element={<OnboardingPage />} />
               <Route path="/connections" element={<ConnectionsPage />} />
               <Route path="/plugins" element={<PluginsPage />} />
               <Route path="/providers" element={<ProvidersPage />} />
