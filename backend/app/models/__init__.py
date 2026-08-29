@@ -19,7 +19,7 @@ from app.models.insight import ReviewFinding, RunFeedback, Deployment, SourceRea
 from app.models.sprint import SprintPlan, TicketEstimate
 
 # Phase 12 — the collaboration layer
-from app.models.integration import ModelCredential
+from app.models.integration import ModelCredential, ToolGrant
 from app.models.workspace import (
     Channel, ChannelMember, Message, MessageReaction, UserPresence,
 )
@@ -28,6 +28,9 @@ from app.models.workspace import (
 from app.models.department import Department, Team, TeamMember
 from app.models.work import Work
 from app.models.workflow import Workflow, WorkflowExecution, WorkflowExecutionStep
+
+# Company OS foundation, steps 10-13 — agent scoping, tool grants, BYO API registry
+from app.models.company_api import CompanyApi, CompanyApiEndpoint
 
 __all__ = [
     "User", "Organization", "OrgMember", "OrgInvitation", "SsoConnection",
@@ -42,7 +45,8 @@ __all__ = [
     "ReviewFinding", "RunFeedback", "Deployment", "SourceRead",
     "SprintPlan", "TicketEstimate",
     "Channel", "ChannelMember", "Message", "MessageReaction", "UserPresence",
-    "ModelCredential",
+    "ModelCredential", "ToolGrant",
     "Department", "Team", "TeamMember", "Work",
     "Workflow", "WorkflowExecution", "WorkflowExecutionStep",
+    "CompanyApi", "CompanyApiEndpoint",
 ]

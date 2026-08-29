@@ -23,12 +23,15 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean, DateTime, ForeignKey, Index, String, Text, UniqueConstraint, func,
+    Boolean, CheckConstraint, DateTime, ForeignKey, Index, String, Text,
+    UniqueConstraint, func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+
+GRANTEE_TYPES = ("agent", "department", "team", "workflow")
 
 
 class ModelCredential(Base):
@@ -90,6 +93,61 @@ class ModelCredential(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user = relationship("User", foreign_keys=[user_id])
+
+
+class ToolGrant(Base):
+    """
+    Explicit allow-listing of which agents/departments/teams/workflows may
+    use a connected tool — plugin credential (`plugin_key`, keyed off the
+    `plugins.py` registry) or a company-defined API (`company_api_id`,
+    step 12). Exactly one of the two is set.
+
+    DEFAULT-OPEN-UNTIL-SCOPED, a deliberate and security-relevant choice: a
+    connected plugin/CompanyApi with ZERO ToolGrant rows for it is available
+    org-wide to whatever calls it — this is backward compatible, nothing
+    breaks for an org that never uses this table. The instant at least one
+    ToolGrant row exists for that plugin_key/company_api_id, the allow-list
+    flips ON and only the specifically granted agents/departments/teams/
+    workflows may use it from then on. See `can_use_tool()` in
+    `app/routers/integrations.py` (or wherever it is imported from) for the
+    authorization check every caller — including
+    `company_api_service.call_endpoint` — goes through.
+    """
+    __tablename__ = "tool_grants"
+    __table_args__ = (
+        CheckConstraint(f"grantee_type IN {GRANTEE_TYPES}", name="tool_grants_grantee_type_check"),
+        CheckConstraint(
+            "(plugin_key IS NOT NULL AND company_api_id IS NULL) OR "
+            "(plugin_key IS NULL AND company_api_id IS NOT NULL)",
+            name="tool_grants_exactly_one_target_check",
+        ),
+        UniqueConstraint(
+            "organization_id", "plugin_key", "company_api_id", "grantee_type", "grantee_id",
+            name="uq_tool_grant_target_grantee",
+        ),
+        Index("ix_tool_grants_org_plugin", "organization_id", "plugin_key"),
+        Index("ix_tool_grants_org_api", "organization_id", "company_api_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    # References plugins.py registry key, e.g. "github", "slack". Not an FK —
+    # same reason ModelCredential.provider isn't one: the registry is a dict
+    # literal, not a table.
+    plugin_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    company_api_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("company_apis.id", ondelete="CASCADE"), nullable=True
+    )
+    grantee_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    grantee_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    granted_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    org = relationship("Organization")
 
 
 def mask(secret: str | None) -> str | None:
