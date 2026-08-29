@@ -6,7 +6,7 @@ from app.routers import auth, connections, skills, agents, pods, projects, ticke
 from app.routers import dashboard, settings as settings_router
 from app.routers import billing, notifications, insights, governance, catalog, memory, public_api, mcp, sprint
 from app.routers import workspace, integrations
-from app.routers import departments, teams, work, desk, workflows, company_apis
+from app.routers import departments, teams, work, desk, workflows, company_apis, tool_grants
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
 
@@ -76,6 +76,8 @@ fastapi_app.include_router(workflows.router,      prefix="/workflows",     tags=
 # BYO API integration registry (step 12) — root-mounted since its own paths
 # are already namespaced under /company-apis.
 fastapi_app.include_router(company_apis.router,   prefix="",               tags=["company-apis"])
+# Tool grants (step 11) — the allow-list gating plugin/company-API usage.
+fastapi_app.include_router(tool_grants.router,    prefix="",               tags=["tool-grants"])
 
 
 @fastapi_app.get("/health")
