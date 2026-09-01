@@ -5,7 +5,8 @@ import {
   FolderOpen, Play, ClipboardList, Settings, LogOut,
   Menu, X, Users, Building2,
   BarChart3, CreditCard, Shield, Store, Terminal, FileCheck,
-  MessagesSquare, Activity, KeyRound,
+  // MessagesSquare, // Commented out with Workspace feature
+  Activity, KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -19,10 +20,9 @@ const NAV = [
   {
     items: [
       { label: 'Dashboard',   to: '/dashboard',   icon: LayoutDashboard },
-      // Above every group on purpose. The conversation is where a team starts
-      // its day; burying it under "Build" is how a chat surface goes unused and
-      // the WhatsApp group survives.
-      { label: 'Workspace',   to: '/workspace',   icon: MessagesSquare },
+      // Workspace temporarily hidden per user request (2026-09-01)
+      // TODO: Re-enable when ready to launch chat/collaboration features
+      // { label: 'Workspace',   to: '/workspace',   icon: MessagesSquare },
     ],
   },
   {
