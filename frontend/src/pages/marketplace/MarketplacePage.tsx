@@ -148,7 +148,7 @@ export default function MarketplacePage() {
             <TemplateCard
               key={t.id}
               template={t}
-              installing={install.isPending}
+              installing={install.isPending && install.variables === t.slug}
               onInstall={() => install.mutate(t.slug)}
             />
           ))}
