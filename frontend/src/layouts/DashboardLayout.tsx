@@ -6,7 +6,7 @@ import {
   Menu, X, Users, Building2,
   BarChart3, CreditCard, Shield, Store, Terminal, FileCheck,
   // MessagesSquare, // Commented out with Workspace feature
-  Activity, KeyRound,
+  Activity, KeyRound, UserCircle2, TestTube2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -32,6 +32,7 @@ const NAV = [
       { label: 'Skills',      to: '/skills',      icon: BookOpen },
       { label: 'Agents',      to: '/agents',      icon: Bot },
       { label: 'Pods',        to: '/pods',        icon: Layers },
+      { label: 'Personas',    to: '/personas',    icon: UserCircle2 },
       { label: 'Marketplace', to: '/marketplace', icon: Store },
     ],
   },
@@ -40,6 +41,7 @@ const NAV = [
     items: [
       { label: 'Projects',    to: '/projects',    icon: FolderOpen },
       { label: 'Runs',        to: '/runs',        icon: Play },
+      { label: 'Simulations', to: '/simulations', icon: TestTube2 },
     ],
   },
   {

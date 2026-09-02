@@ -37,6 +37,11 @@ import ProjectDetailPage from '@/pages/projects/ProjectDetailPage'
 import TicketDetailPage from '@/pages/projects/TicketDetailPage'
 import RunsPage from '@/pages/runs/RunsPage'
 import RunDetailPage from '@/pages/runs/RunDetailPage'
+import PersonasPage from '@/pages/personas/PersonasPage'
+import NewPersonaPage from '@/pages/personas/NewPersonaPage'
+import PersonaDetailPage from '@/pages/personas/PersonaDetailPage'
+import SimulationsPage from '@/pages/simulations/SimulationsPage'
+import SimulationDetailPage from '@/pages/simulations/SimulationDetailPage'
 import AuditPage from '@/pages/audit/AuditPage'
 import SettingsPage from '@/pages/settings/SettingsPage'
 import NewOrgPage from '@/pages/org/NewOrgPage'
@@ -179,6 +184,11 @@ export default function App() {
               <Route path="/projects/:id/tickets/:ticketId" element={<TicketDetailPage />} />
               <Route path="/runs" element={<RunsPage />} />
               <Route path="/runs/:runId" element={<RunDetailPage />} />
+              <Route path="/personas" element={<PersonasPage />} />
+              <Route path="/personas/new" element={<NewPersonaPage />} />
+              <Route path="/personas/:id" element={<PersonaDetailPage />} />
+              <Route path="/simulations" element={<SimulationsPage />} />
+              <Route path="/simulations/:id" element={<SimulationDetailPage />} />
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/workflows/new" element={<NewWorkflowPage />} />
               <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
