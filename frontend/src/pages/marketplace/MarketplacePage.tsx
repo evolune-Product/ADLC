@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookOpen, Bot, Download, Layers, Search, ShieldCheck, Star } from 'lucide-react'
+import { BookOpen, Bot, Building2, Download, Layers, Search, ShieldCheck, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton'
@@ -11,16 +11,22 @@ const KINDS: { value: TemplateKind | 'all'; label: string; icon: typeof BookOpen
   { value: 'skill', label: 'Skills', icon: BookOpen },
   { value: 'agent', label: 'Agents', icon: Bot },
   { value: 'pod', label: 'Pods', icon: Layers },
+  { value: 'company', label: 'Company', icon: Building2 },
 ]
 
-const KIND_ICON = { skill: BookOpen, agent: Bot, pod: Layers }
+const KIND_ICON: Record<TemplateKind, typeof BookOpen> = {
+  skill: BookOpen,
+  agent: Bot,
+  pod: Layers,
+  company: Building2,
+}
 
 function TemplateCard({ template, onInstall, installing }: {
   template: Template
   onInstall: () => void
   installing: boolean
 }) {
-  const Icon = KIND_ICON[template.kind]
+  const Icon = KIND_ICON[template.kind] ?? BookOpen
   const listing = template.listing
   return (
     <div className="bg-card rounded-lg border border-border p-4 flex flex-col">

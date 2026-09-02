@@ -287,7 +287,7 @@ export interface SprintPlan {
 }
 
 // ─── Catalog / marketplace ───────────────────────────────────────────────────
-export type TemplateKind = 'skill' | 'agent' | 'pod'
+export type TemplateKind = 'skill' | 'agent' | 'pod' | 'company'
 
 export interface TemplateListing {
   id: string
