@@ -8,6 +8,8 @@ POST   /simulations/           → start a run for a persona + URL (kicks off a
                                   shape `POST /runs` already uses)
 GET    /simulations/           → list past runs (optionally filter by persona/status)
 GET    /simulations/{id}       → poll one run's status and list its findings
+GET    /simulations/{id}/findings/{finding_id}/screenshot
+                                → the screenshot captured at that finding's step
 
 `GET /simulations/{id}` is the only endpoint the frontend actually polls
 (`useSimulations.ts` mirrors `useRuns.ts`'s `refetchInterval` pattern) — there
@@ -16,9 +18,11 @@ is no WebSocket event stream for simulations in v1, unlike SDLC runs.
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -152,3 +156,28 @@ def get_simulation(
 ):
     run = get_or_404(SimulationRun, simulation_id, current_user.id, db, "Simulation run", org_ctx)
     return _run_out(run, include_findings=True)
+
+
+@router.get("/{simulation_id}/findings/{finding_id}/screenshot")
+def get_finding_screenshot(
+    simulation_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    org_ctx: Optional[OrgContext] = Depends(get_optional_org),
+):
+    # get_or_404 does the ownership check; the finding is then looked up
+    # scoped to that already-verified run so this can never serve a file
+    # belonging to a run outside the caller's org/workspace.
+    run = get_or_404(SimulationRun, simulation_id, current_user.id, db, "Simulation run", org_ctx)
+    finding = (
+        db.query(SimulationFinding)
+        .filter(SimulationFinding.id == finding_id, SimulationFinding.simulation_run_id == run.id)
+        .first()
+    )
+    if not finding or not finding.screenshot_path:
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    path = Path(finding.screenshot_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Screenshot file no longer exists on disk")
+    return FileResponse(path, media_type="image/png")
