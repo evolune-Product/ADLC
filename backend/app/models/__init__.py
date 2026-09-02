@@ -32,6 +32,10 @@ from app.models.workflow import Workflow, WorkflowExecution, WorkflowExecutionSt
 # Company OS foundation, steps 10-13 — agent scoping, tool grants, BYO API registry
 from app.models.company_api import CompanyApi, CompanyApiEndpoint
 
+# Simulated Persona QA — persona-driven simulated user testing
+from app.models.persona import Persona
+from app.models.simulation import SimulationRun, SimulationFinding
+
 __all__ = [
     "User", "Organization", "OrgMember", "OrgInvitation", "SsoConnection",
     "Connection", "Skill", "Agent", "AgentSkill",
@@ -49,4 +53,5 @@ __all__ = [
     "Department", "Team", "TeamMember", "Work",
     "Workflow", "WorkflowExecution", "WorkflowExecutionStep",
     "CompanyApi", "CompanyApiEndpoint",
+    "Persona", "SimulationRun", "SimulationFinding",
 ]
