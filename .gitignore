@@ -37,6 +37,10 @@ Thumbs.db
 # Alembic — keep migrations, skip temp files
 *.pyc
 
+# Simulation agent screenshots (runtime artifacts, local disk — see
+# backend/app/config.py Settings.simulation_screenshot_dir)
+backend/data/
+
 # Claude Code internal
 .claude/settings.local.json
 *.vsix
