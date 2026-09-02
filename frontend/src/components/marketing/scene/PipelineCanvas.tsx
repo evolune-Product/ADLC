@@ -95,7 +95,8 @@ export function PipelineCanvas({
     io.observe(el)
 
     const onVisibility = () => {
-      if (document.hidden) setActive(false)
+      // Resume animation when tab becomes visible again
+      setActive(!document.hidden)
     }
     document.addEventListener('visibilitychange', onVisibility)
 
