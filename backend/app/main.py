@@ -7,6 +7,7 @@ from app.routers import dashboard, settings as settings_router
 from app.routers import billing, notifications, insights, governance, catalog, memory, public_api, mcp, sprint
 from app.routers import workspace, integrations
 from app.routers import departments, teams, work, desk, workflows, company_apis, tool_grants, company_dashboard
+from app.routers import personas, simulations
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
 
@@ -14,7 +15,7 @@ fastapi_app = FastAPI(title="Agentic SDLC API", version="1.1.0")
 
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, "http://localhost:3000", "http://localhost:5173"],
+    allow_origins=[settings.frontend_url, "http://localhost:3000", "http://localhost:5173", "http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,6 +80,12 @@ fastapi_app.include_router(company_apis.router,   prefix="",               tags=
 # Tool grants (step 11) — the allow-list gating plugin/company-API usage.
 fastapi_app.include_router(tool_grants.router,    prefix="",               tags=["tool-grants"])
 fastapi_app.include_router(company_dashboard.router, prefix="",            tags=["company-dashboard"])
+
+# ── Simulated Persona QA ───────────────────────────────────────────────────
+# Persona-driven simulated user testing — deepens the existing QA pipeline
+# stage (agents/qa_agent.py does static code review only) without touching it.
+fastapi_app.include_router(personas.router,       prefix="/personas",      tags=["personas"])
+fastapi_app.include_router(simulations.router,    prefix="/simulations",   tags=["simulations"])
 
 
 @fastapi_app.get("/health")

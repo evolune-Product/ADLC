@@ -5,7 +5,7 @@ celery_app = Celery(
     "agentic_sdlc",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.run_tasks", "app.tasks.memory_tasks"],
+    include=["app.tasks.run_tasks", "app.tasks.memory_tasks", "app.tasks.simulation_tasks"],
 )
 
 celery_app.conf.update(
