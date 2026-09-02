@@ -165,9 +165,20 @@ def build_system_prompt(agent: Agent | None, project: dict, *, role_intro: str,
 def call_llm(
     db: Session, *, run_id, agent: Agent | None, agent_role: str,
     system: str, user: str, tool: dict | None = None, max_tokens: int = 8192,
+    image_base64: str | None = None, image_media_type: str = "image/png",
+    user_id=None, org_id=None,
 ) -> llm_service.LLMResult:
-    """One metered model call. Every token this platform spends flows through here."""
-    user_id, org_id = run_owner(db, run_id)
+    """
+    One metered model call. Every token this platform spends flows through here.
+
+    `run_id` resolves (user_id, org_id) for billing when the caller has a real
+    SDLC `Run` row — every existing agent does. `simulation_agent.py` has no
+    `Run` (a `SimulationRun` is a different table), so it passes `user_id`/
+    `org_id` directly instead; `run_id` stays `None` for it and is never used
+    to look anything up in that case.
+    """
+    if run_id is not None:
+        user_id, org_id = run_owner(db, run_id)
     model = (agent.llm_model if agent and agent.llm_model else llm_service.DEFAULT_MODEL)
     # Resolved per model, not per workspace: an agent set to a local Ollama and
     # one set to Claude are two different credentials in the same workspace.
@@ -177,6 +188,7 @@ def call_llm(
         system=system, user=user, model=model, max_tokens=max_tokens,
         tool=tool, byo_provider=cred.provider, byo_key=cred.api_key,
         byo_base_url=cred.base_url, price_overrides=cred.price_overrides,
+        image_base64=image_base64, image_media_type=image_media_type,
     )
 
     metering_service.record_llm_call(

@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     embedding_base_url: str = ""
     embedding_model: str = "text-embedding-3-small"
 
+    # Simulation agent — where step screenshots are written. Relative paths
+    # resolve against the backend package root. `storage_service.py` (the
+    # obvious MinIO home) is an empty stub with no upload path wired up
+    # anywhere yet, so v1 writes to local disk like everything else in this
+    # deployment already assumes a persistent volume for (see
+    # agents/simulation_agent.py's module docstring).
+    simulation_screenshot_dir: str = "data/simulation_screenshots"
+
     # Billing (optional — the platform runs without any of these configured;
     # each gateway degrades to a simulated checkout independently, so a
     # deployment can enable Stripe only, Razorpay only, all three, or none).

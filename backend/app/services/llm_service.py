@@ -208,6 +208,13 @@ def resolve_credentials(byo_provider: str | None, byo_key: str | None, model: st
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+# Wire formats with a vision path wired up below. Kept as an explicit set
+# rather than "try and see" so a workspace running Ollama or a bare OpenAI-
+# compatible gateway gets a clear error instead of a silently ignored image —
+# see `complete()`'s docstring for the reasoning.
+_VISION_WIRES = {"anthropic", "openai"}
+
+
 def complete(
     *,
     system: str,
@@ -221,25 +228,49 @@ def complete(
     byo_base_url: str | None = None,
     price_overrides: dict | None = None,
     timeout: float = 300.0,
+    image_base64: str | None = None,
+    image_media_type: str = "image/png",
 ) -> LLMResult:
     """
     One call, any provider. When `tool` is given the model is asked to answer
     through that tool schema and `result.tool_input` carries the parsed object.
+
+    `image_base64` is the minimal vision extension added for
+    `agents/simulation_agent.py`, which has to show the model a screenshot of
+    the page it is driving. It rides the same two wire formats every other
+    agent call already uses — the native Anthropic SDK (`source.type: base64`
+    content blocks) and the OpenAI chat-completions shape (`image_url` with a
+    `data:` URI, which is also what Azure OpenAI and most OpenAI-compatible
+    gateways accept). Google and Ollama are reached by this same `complete()`
+    for text-only agent calls, but neither wire has an image path implemented
+    here — passing an image on those raises `LLMError` immediately rather than
+    silently dropping it and letting the persona "see" nothing, which is the
+    one failure mode a simulation agent must never fail quietly into (the
+    whole point of the loop is grounding the next click in what the screen
+    actually shows).
     """
     provider, api_key, _, base_url = resolve_credentials(
         byo_provider, byo_key, model, byo_base_url)
 
     # Dispatch on wire format, not on vendor. Twenty providers, four clients.
     wire = llm_providers.wire_for(provider)
+    if image_base64 and wire not in _VISION_WIRES:
+        raise LLMError(
+            f"Provider '{provider}' (wire '{wire}') has no vision path wired up in this "
+            "platform yet — configure an Anthropic or OpenAI-shaped model credential for "
+            "vision-driven agents like the simulation agent."
+        )
+
     if wire == "anthropic":
-        result = _anthropic_complete(system, user, model, max_tokens, tool, force_tool, api_key, timeout)
+        result = _anthropic_complete(system, user, model, max_tokens, tool, force_tool, api_key,
+                                     timeout, image_base64, image_media_type)
     elif wire == "google":
         result = _google_complete(system, user, model, max_tokens, tool, api_key, base_url, timeout)
     elif wire == "ollama":
         result = _ollama_complete(system, user, model, max_tokens, tool, timeout, base_url)
     elif wire == "openai":
         result = _openai_complete(system, user, model, max_tokens, tool, force_tool,
-                                  api_key, provider, timeout, base_url)
+                                  api_key, provider, timeout, base_url, image_base64, image_media_type)
     else:
         raise LLMError(f"Unknown LLM wire format '{wire}' for provider '{provider}'")
 
@@ -251,18 +282,29 @@ def complete(
 
 # ── Anthropic ─────────────────────────────────────────────────────────────────
 
-def _anthropic_complete(system, user, model, max_tokens, tool, force_tool, api_key, timeout) -> LLMResult:
+def _anthropic_complete(system, user, model, max_tokens, tool, force_tool, api_key, timeout,
+                        image_base64=None, image_media_type="image/png") -> LLMResult:
     import anthropic
 
     if not api_key:
         raise LLMError("No Anthropic API key configured (set ANTHROPIC_API_KEY or an org BYO key)")
 
     client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
+    # A vision call needs `content` as a block list (image block + text block)
+    # rather than the bare string every other agent call sends — Claude reads
+    # blocks in order, so the image comes first and the question follows it.
+    content: Any = user
+    if image_base64:
+        content = [
+            {"type": "image", "source": {"type": "base64", "media_type": image_media_type,
+                                         "data": image_base64}},
+            {"type": "text", "text": user},
+        ]
     kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
         "system": system,
-        "messages": [{"role": "user", "content": user}],
+        "messages": [{"role": "user", "content": content}],
     }
     if tool:
         kwargs["tools"] = [tool]
@@ -293,7 +335,8 @@ def _anthropic_complete(system, user, model, max_tokens, tool, force_tool, api_k
 # ── OpenAI-compatible (OpenAI, Azure OpenAI, vLLM, LiteLLM, …) ────────────────
 
 def _openai_complete(system, user, model, max_tokens, tool, force_tool, api_key,
-                     provider, timeout, base_url=None) -> LLMResult:
+                     provider, timeout, base_url=None, image_base64=None,
+                     image_media_type="image/png") -> LLMResult:
     # The base URL is what makes one client serve fifteen vendors. It comes
     # from the stored credential when the customer set one (Azure, vLLM, an
     # internal gateway), else the catalogue's default for that provider, else
@@ -308,12 +351,22 @@ def _openai_complete(system, user, model, max_tokens, tool, force_tool, api_key,
     else:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    # Vision on the OpenAI chat-completions shape: `content` becomes a part
+    # list with an inline data: URI rather than a bare string. Same trigger
+    # and same block-ordering rationale as the Anthropic wire above.
+    user_content: Any = user
+    if image_base64:
+        user_content = [
+            {"type": "image_url", "image_url": {"url": f"data:{image_media_type};base64,{image_base64}"}},
+            {"type": "text", "text": user},
+        ]
+
     body: dict[str, Any] = {
         "model": model,
         "max_completion_tokens": max_tokens,
         "messages": [
             {"role": "system", "content": system},
-            {"role": "user", "content": user},
+            {"role": "user", "content": user_content},
         ],
     }
     if tool:

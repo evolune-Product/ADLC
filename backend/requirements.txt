@@ -55,6 +55,20 @@ langchain-anthropic==0.3.0
 # Billing (optional — the platform runs without it configured)
 stripe==11.4.0
 
+# Simulation agent — headless-Chromium browser driver for persona-driven
+# simulated user testing (agents/simulation_agent.py). The pip package alone
+# is NOT enough: `playwright install chromium` must also be run once per
+# environment (this checkout, any Docker image, any worker host) to download
+# the actual browser binary. See that module's docstring.
+# Pinned to a recent release deliberately: 1.49.0 (the version originally
+# tried here) declares an exact `greenlet==3.1.1` dependency, which has no
+# prebuilt wheel for Python 3.14 and fails to compile from source against it
+# (greenlet's C extension used CPython internals — c_recursion_remaining /
+# Py_C_RECURSION_LIMIT — that changed in 3.14). 1.62.0 relaxes that to
+# `greenlet>=3.1.1,<4.0.0`, which resolves to greenlet 3.5.5 (a real 3.14
+# wheel) instead. Verified by installing both into this checkout's venv.
+playwright==1.62.0
+
 # Utilities
 python-dotenv==1.0.1
 aiofiles==24.1.0
