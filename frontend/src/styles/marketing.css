@@ -1,5 +1,5 @@
 /* ============================================================================
-   ADLC — MARKETING SURFACE
+   EVOLUNE OS — MARKETING SURFACE
    ----------------------------------------------------------------------------
    Design thesis: THE FOUNDRY AT NIGHT.
 
@@ -575,6 +575,126 @@
   50% { opacity: 0.15; }
 }
 
+/* ============================================================================
+   MARQUEE
+   A continuous drift, not a carousel — nothing to wait on, nothing to click.
+   Two copies of the item list sit side by side and the track scrolls exactly
+   one copy's width, so the seam where it loops is never visible.
+   ========================================================================== */
+
+@keyframes mk-marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.mk-marquee {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    to right, transparent, black var(--mk-gutter), black calc(100% - var(--mk-gutter)), transparent
+  );
+  mask-image: linear-gradient(
+    to right, transparent, black var(--mk-gutter), black calc(100% - var(--mk-gutter)), transparent
+  );
+}
+
+.mk-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: mk-marquee-scroll var(--mk-marquee-duration, 40s) linear infinite;
+}
+
+.mk-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+.mk-marquee-group {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.mk-marquee-item {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  padding-inline: 1.25rem;
+  transition: color 0.2s;
+}
+
+.mk-marquee-item:hover span:first-child {
+  color: var(--mk-ink-2);
+}
+
+.mk-marquee-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--mk-hairline-lit);
+  margin-left: 1.25rem;
+}
+
+/* ============================================================================
+   PRODUCT MOCKUP
+   The hero's second beat, styled as a screenshot rather than reused as a real
+   one — see ProductMockup.tsx. Grows into place on arrival, same physical
+   language as .mk-reveal but with scale added: this is meant to read as
+   "the window opening", not just fading in.
+   ========================================================================== */
+
+.mk-mockup-wrap {
+  opacity: 0;
+  transform: scale(0.82) translateY(30px);
+  transition:
+    opacity 0.9s var(--mk-ease),
+    transform 0.9s var(--mk-ease);
+}
+
+.mk-mockup-wrap[data-shown='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+.mk-mockup-cursor-idle {
+  top: 0;
+  left: 0;
+  transform: translate(636px, 260px);
+}
+
+.mk-mockup-cursor-at-button {
+  top: 0;
+  left: 0;
+  transform: translate(636px, 92px);
+}
+
+.mk-mockup-cursor-click {
+  animation: mk-cursor-pulse 0.4s var(--mk-ease);
+}
+
+@keyframes mk-cursor-pulse {
+  0%, 100% { scale: 1; }
+  40% { scale: 0.7; }
+}
+
+/* ============================================================================
+   FOOTER WATERMARK
+   The wordmark, huge and almost gone — the same move a company makes when it
+   wants the last thing on the page to feel like scale, not a sign-off.
+   ========================================================================== */
+
+.mk-footer-watermark {
+  position: absolute;
+  inset-inline: 0;
+  bottom: -0.14em;
+  line-height: 1;
+  text-align: center;
+  font-size: clamp(5rem, 19vw, 13rem);
+  letter-spacing: -0.02em;
+  color: var(--mk-ink);
+  opacity: 0.05;
+  user-select: none;
+  white-space: nowrap;
+}
+
 .mk-animate-breathe { animation: mk-breathe 3.6s ease-in-out infinite; }
 .mk-animate-blink { animation: mk-blink 1.4s step-end infinite; }
 .mk-animate-pulse-ring { animation: mk-pulse-ring 2.4s ease-out infinite; }
@@ -641,6 +761,212 @@
 .mk-draw-rule[data-shown='true'] {
   transform: scaleX(1);
   opacity: 1;
+}
+
+/* ============================================================================
+   PREMIUM COMPONENTS
+   ----------------------------------------------------------------------------
+   The heavier surfaces added for the visual redesign: the floating pill nav,
+   the luxury CTA, the interactive hero cockpit and its diff view, and the
+   bento-grid cards used across Platform / HowItWorks / Trust. Every one of
+   these is theme-aware — dark is the reference, light gets its own override
+   wherever a hardcoded rgba() would otherwise read as a smudge or a glare on
+   the cream ground, the same rule the rest of this file follows.
+   ========================================================================== */
+
+.mk-floating-nav {
+  position: fixed;
+  top: 1.25rem;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+  padding: 0 1rem;
+}
+
+.mk-floating-pill {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 840px;
+  background: rgba(10, 9, 14, 0.72);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.12) inset,
+    0 16px 40px -12px rgba(0, 0, 0, 0.65),
+    0 0 0 1px rgba(0, 0, 0, 0.5);
+  border-radius: 9999px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme='light'] .mk-floating-pill {
+  background: rgba(245, 239, 230, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.8) inset,
+    0 16px 32px -12px rgba(0, 0, 0, 0.12);
+}
+
+/* Luxury pill CTA — an inset shine over the brand fill. The fill itself stays
+   `--mk-ember` in both themes (see MkButton), so only the shine needs to
+   exist at all; it does not need a light variant of its own. */
+.mk-btn-luxury {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 0.9) inset,
+    0 8px 20px -4px rgba(232, 99, 42, 0.35),
+    0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.mk-btn-luxury:hover {
+  transform: scale(1.02);
+  box-shadow:
+    0 1px 0 0 rgba(255, 255, 255, 1) inset,
+    0 12px 28px -4px rgba(232, 99, 42, 0.5),
+    0 4px 8px rgba(0, 0, 0, 0.25);
+}
+
+.mk-btn-luxury:active {
+  transform: scale(0.99);
+}
+
+@keyframes mk-radar-ping {
+  0% { transform: scale(1); opacity: 0.9; }
+  70% { transform: scale(2.4); opacity: 0; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+.mk-radar-ping {
+  animation: mk-radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Shimmer text — the hero's one animated phrase. `mk-lit` (above) is the
+   static version of the same gradient; this is its motion variant, so the
+   stop colours have to track the same light/dark split `mk-lit` already
+   made: white-hot in the dark shop, ink-to-ember in daylight. */
+@keyframes mk-shimmer-flow {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.mk-text-shimmer {
+  background: linear-gradient(
+    90deg,
+    #ffffff 0%,
+    var(--mk-ember-lit) 35%,
+    var(--mk-ember) 50%,
+    var(--mk-ember-lit) 65%,
+    #ffffff 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: mk-shimmer-flow 6s linear infinite;
+}
+
+[data-theme='light'] .mk-text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--mk-ink) 0%,
+    var(--mk-ember-lit) 35%,
+    var(--mk-ember) 50%,
+    var(--mk-ember-lit) 65%,
+    var(--mk-ink) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Interactive hero cockpit frame. */
+.mk-cockpit-stage {
+  border-radius: 18px;
+  padding: 1px;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.08) 25%,
+    rgba(232, 99, 42, 0.2) 65%,
+    rgba(0, 0, 0, 0.4) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.7),
+    0 24px 60px -15px rgba(0, 0, 0, 0.8),
+    0 0 80px -20px rgba(232, 99, 42, 0.18);
+}
+
+[data-theme='light'] .mk-cockpit-stage {
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(255, 255, 255, 0.5) 25%,
+    rgba(232, 99, 42, 0.28) 65%,
+    rgba(122, 98, 66, 0.25) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.08),
+    0 24px 48px -20px rgba(72, 52, 32, 0.28),
+    0 0 60px -24px rgba(232, 99, 42, 0.22);
+}
+
+.mk-cockpit-body {
+  border-radius: 17px;
+  background: #0d0c11;
+  overflow: hidden;
+}
+
+[data-theme='light'] .mk-cockpit-body {
+  background: #faf6f0;
+}
+
+/* Syntax-highlighted diff lines — tokens, not literal hex, so a diff read in
+   light mode uses the same darkened pass/hold values the rest of the page
+   uses for AA contrast rather than the dark theme's brighter ones. */
+.mk-diff-add {
+  background: color-mix(in srgb, var(--mk-pass) 10%, transparent);
+  color: var(--mk-pass);
+  border-left: 2px solid var(--mk-pass);
+}
+
+.mk-diff-del {
+  background: color-mix(in srgb, var(--mk-hold) 10%, transparent);
+  color: var(--mk-hold);
+  border-left: 2px solid var(--mk-hold);
+}
+
+.mk-diff-ctx {
+  color: var(--mk-ink-2);
+  border-left: 2px solid transparent;
+}
+
+/* Bento grid cards — Platform, HowItWorks, Trust. */
+.mk-bento-card {
+  position: relative;
+  background: var(--mk-panel);
+  border: 1px solid var(--mk-hairline);
+  border-radius: 1rem;
+  padding: 1.75rem;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.mk-bento-card:hover {
+  background: var(--mk-panel-2);
+  border-color: var(--mk-hairline-lit);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.5);
 }
 
 /* ============================================================================
