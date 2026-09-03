@@ -14,7 +14,7 @@ import { Seo } from '@/components/Seo'
  * Its whole design premise is the fourth group: **what is not in place is
  * listed with everything else**, in the same type, not in a footnote. A vendor
  * page that lists only its strengths gets found out during the questionnaire,
- * and by then the deal has a trust problem rather than a gap problem. ADLC has
+ * and by then the deal has a trust problem rather than a gap problem. Evolune OS has
  * no SOC 2, no SSO and no pen-test report, and saying so here costs less than
  * having it discovered in week six.
  *
@@ -27,15 +27,21 @@ export default function SecurityPage() {
   return (
     <div className="mk-root relative min-h-screen bg-[var(--mk-ground)] text-[var(--mk-ink)]">
       <Seo
-        title="Security & data — ADLC"
-        description="How ADLC handles credentials, model traffic and evidence — and what it does not have yet. Encrypted OAuth tokens, bring-your-own model keys, local inference, policy-enforced approval gates, and a full audit trail. No SOC 2, no SSO: both stated plainly."
+        title="Security & data — Evolune OS"
+        description="How Evolune OS handles credentials, model traffic and evidence — and what it does not have yet. Encrypted OAuth tokens, bring-your-own model keys, local inference, policy-enforced approval gates, and a full audit trail. No SOC 2, no SSO: both stated plainly."
         path="/security"
       />
       <Atmosphere />
       <MarketingNav />
 
-      <main className="relative pt-32">
-        <section className="mk-shell">
+      <main className="relative pt-36 sm:pt-44">
+        {/* Ambient radial lighting */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 h-[450px] w-[700px] rounded-full blur-[140px] opacity-20"
+          style={{ background: 'radial-gradient(circle, #e8632a 0%, #8b5cf6 50%, transparent 70%)' }}
+        />
+        <section className="mk-shell relative z-10">
           <SectionHead
             eyebrow="Security & data"
             standfirst="This product exists because autonomous work needs a control plane. It would be a poor advertisement for that idea if the platform running it were vague about its own controls. Everything below can be read in the repository, and the last group is the part most vendor pages leave out."

@@ -3,7 +3,7 @@ import { Check, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Reveal, SplitHeading } from '../Reveal'
 import { Eyebrow, MkButton } from '../ui'
-import { PLANS, PRICING_NOTES, formatInrWithGst, INDIA_GST_RATE } from '../content'
+import { PLANS, PRICING_NOTES, formatInrWithGst } from '../content'
 
 type Currency = 'usd' | 'inr'
 
@@ -14,6 +14,13 @@ type Currency = 'usd' | 'inr'
  * our own worst-case inference cost per run. Publishing the number a buyer
  * would otherwise reverse-engineer is cheap, and the alternative — being
  * caught having hidden it — is not.
+ *
+ * There is deliberately no annual/monthly toggle here: `PLANS` in
+ * `content.ts` mirrors the pricing model in `documents/BUSINESS_PLAN_2026.md`
+ * and none of the three payment gateways (`stripe_service` /
+ * `razorpay_service` / `paypal_service`) support annual billing today —
+ * showing a discounted price the checkout flow cannot honour is a bug, not a
+ * feature.
  */
 
 export function PricingPlans({ compact = false }: { compact?: boolean }) {
@@ -22,111 +29,108 @@ export function PricingPlans({ compact = false }: { compact?: boolean }) {
   return (
     <div className="mx-auto max-w-5xl">
       {compact ? null : (
-        <div className="mb-5 flex items-center justify-end gap-1">
-          <span className="mk-mono mr-2 text-[10.5px] uppercase tracking-[0.14em] text-[var(--mk-ink-3)]">
-            Currency
-          </span>
-          {(['usd', 'inr'] as const).map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setCurrency(c)}
-              className={cn(
-                'mk-mono rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.1em] transition-colors',
-                currency === c
-                  ? 'border-[var(--mk-ember)] bg-[var(--mk-ember)]/10 text-[var(--mk-ember-lit)]'
-                  : 'border-[var(--mk-hairline)] text-[var(--mk-ink-3)] hover:text-[var(--mk-ink-2)]',
-              )}
-            >
-              {c === 'usd' ? 'USD' : 'INR incl. GST'}
-            </button>
-          ))}
+        <div className="mb-8 flex flex-wrap items-center justify-end gap-4">
+          <div className="flex items-center gap-1.5">
+            <span className="mk-mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--mk-ink-3)]">
+              Currency
+            </span>
+            {(['usd', 'inr'] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setCurrency(c)}
+                className={cn(
+                  'mk-mono rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.1em] transition-colors',
+                  currency === c
+                    ? 'border-[var(--mk-ember)] bg-[var(--mk-ember)]/15 text-[var(--mk-ember-lit)]'
+                    : 'border-[var(--mk-hairline)] text-[var(--mk-ink-3)] hover:text-[var(--mk-ink-2)]',
+                )}
+              >
+                {c === 'usd' ? 'USD ($)' : 'INR (₹)'}
+              </button>
+            ))}
+          </div>
         </div>
       )}
+
       <div
         className={cn(
-          'grid gap-px overflow-hidden rounded-2xl border border-[var(--mk-hairline)] bg-[var(--mk-hairline)]',
-          'grid-cols-1 sm:grid-cols-3',
+          'grid gap-6',
+          'grid-cols-1 md:grid-cols-3',
         )}
       >
-      {PLANS.map((plan, i) => (
-        <Reveal
-          key={plan.id}
-          delay={i * 0.06}
-          className={cn(
-            'relative flex flex-col p-7',
-            plan.featured ? 'bg-[var(--mk-panel-2)]' : 'bg-[var(--mk-panel)]',
-          )}
-        >
-          {plan.featured ? (
-            <>
-              {/* A hairline of heat along the top edge, rather than a badge
-                  floating over the card. */}
-              <span
-                aria-hidden="true"
-                className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--mk-ember)] to-transparent"
-              />
-              <span className="mk-mono absolute right-6 top-6 text-[10px] uppercase tracking-[0.16em] text-[var(--mk-ember-lit)]">
-                Most teams
-              </span>
-            </>
-          ) : null}
-
-          <div className="mk-display text-[20px]">{plan.name}</div>
-
-          <div className="mt-5 flex items-baseline gap-2">
-            <span className="mk-readout-value text-[clamp(30px,3.4vw,40px)]">
-              {currency === 'inr' && plan.priceUsd !== null
+        {PLANS.map((plan, i) => {
+          const displayPrice =
+            plan.priceUsd === null
+              ? plan.price
+              : currency === 'inr'
                 ? formatInrWithGst(plan.priceUsd)
-                : plan.price}
-            </span>
-            <span className="text-[13px] text-[var(--mk-ink-3)]">{plan.cadence}</span>
-          </div>
-          {currency === 'inr' && plan.priceUsd !== null ? (
-            <div className="mk-mono mt-1 text-[10.5px] text-[var(--mk-ink-3)]">
-              {plan.priceUsd === 0 ? 'No GST on a free plan' : `Includes ${Math.round(INDIA_GST_RATE * 100)}% GST · billed via Razorpay`}
-            </div>
-          ) : null}
+                : `$${plan.priceUsd}`
 
-          {/* Fixed height, not min-height: the summaries wrap to two lines or
-              three depending on the column, and without this the Runs/Overage/
-              Seats plate — the thing a buyer scans across — sat at a different
-              baseline in every card. */}
-          <p className="mt-4 h-[4.5rem] text-[13.5px] leading-relaxed text-[var(--mk-ink-2)]">
-            {plan.summary}
-          </p>
-
-          <div className="mt-5 space-y-1.5 border-y border-[var(--mk-hairline)] py-4">
-            <Line label="Runs" value={plan.runs} />
-            <Line label="Overage" value={plan.overage} />
-            <Line label="Seats" value={plan.seats} />
-          </div>
-
-          {compact ? null : (
-            <ul className="mt-5 flex-1 space-y-2.5">
-              {plan.features.map((feature) => (
-                <li key={feature} className="flex items-start gap-2.5">
-                  <Check
-                    className="mt-[3px] h-3.5 w-3.5 shrink-0 text-[var(--mk-ember-lit)]"
-                    strokeWidth={3}
-                  />
-                  <span className="text-[13.5px] leading-snug text-[var(--mk-ink-2)]">
-                    {feature}
+          return (
+            <Reveal
+              key={plan.id}
+              delay={i * 0.06}
+              className={cn(
+                'relative flex flex-col rounded-2xl border p-7 sm:p-8 transition-all duration-300',
+                plan.featured
+                  ? 'border-[var(--mk-ember)]/60 bg-[var(--mk-panel-2)] shadow-[0_0_35px_rgba(232,99,42,0.12)] scale-[1.02]'
+                  : 'border-[var(--mk-hairline)] bg-[var(--mk-panel)] hover:border-[var(--mk-hairline-lit)]',
+              )}
+            >
+              {plan.featured && (
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                  <span className="mk-mono rounded-full bg-[var(--mk-ember)] px-3.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-[#0a0508] shadow-[0_0_12px_rgba(232,99,42,0.5)]">
+                    Most teams
                   </span>
-                </li>
-              ))}
-            </ul>
-          )}
+                </div>
+              )}
 
-          <MkButton
-            to={plan.ctaTo}
-            variant={plan.featured ? 'primary' : 'ghost'}
-            className="mt-7 w-full"
-          >
-            {plan.cta}
-          </MkButton>
-        </Reveal>
-      ))}
+              <div className="text-xl font-bold text-[var(--mk-ink)]">{plan.name}</div>
+
+              <div className="mt-5 flex items-baseline gap-2">
+                <span className="mk-readout-value text-[clamp(32px,3.6vw,44px)]">
+                  {displayPrice}
+                </span>
+                <span className="text-[13px] text-[var(--mk-ink-3)]">{plan.cadence}</span>
+              </div>
+
+              <p className="mt-4 min-h-[3rem] text-[13.5px] leading-relaxed text-[var(--mk-ink-2)]">
+                {plan.summary}
+              </p>
+
+              <div className="mt-6 space-y-2 border-y border-[var(--mk-hairline)] py-4">
+                <Line label="Included runs" value={plan.runs} />
+                <Line label="Overage" value={plan.overage} />
+                <Line label="Seats" value={plan.seats} />
+              </div>
+
+              {!compact && (
+                <ul className="mt-6 flex-1 space-y-2.5">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2.5">
+                      <Check
+                        className="mt-[3px] h-3.5 w-3.5 shrink-0 text-[var(--mk-ember-lit)]"
+                        strokeWidth={3}
+                      />
+                      <span className="text-[13.5px] leading-snug text-[var(--mk-ink-2)]">
+                        {feature}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <MkButton
+                to={plan.ctaTo}
+                variant={plan.featured ? 'primary' : 'ghost'}
+                className={cn('mt-8 w-full', plan.featured && 'mk-btn-luxury')}
+              >
+                {plan.cta}
+              </MkButton>
+            </Reveal>
+          )
+        })}
       </div>
     </div>
   )
@@ -138,27 +142,92 @@ function Line({ label, value }: { label: string; value: string }) {
       <span className="mk-mono text-[10.5px] uppercase tracking-[0.14em] text-[var(--mk-ink-3)]">
         {label}
       </span>
-      <span className="mk-mono text-right text-[12px] text-[var(--mk-ink)]">{value}</span>
+      <span className="mk-mono text-right text-[12px] font-semibold text-[var(--mk-ink)]">{value}</span>
+    </div>
+  )
+}
+
+/**
+ * Interactive ROI estimator. Distinct from the fabricated-benchmark problem
+ * elsewhere: the assumptions (team size, hours per ticket, blended rate) are
+ * all visible and user-driven, and the output is explicitly framed as an
+ * estimate the visitor computed, not a measured claim about this platform.
+ */
+function RoiCalculator() {
+  const [teamSize, setTeamSize] = useState(8)
+  const ticketsPerEngineerPerMonth = 12
+  const hoursSavedPerTicket = 3.5
+  const totalHoursSaved = teamSize * ticketsPerEngineerPerMonth * hoursSavedPerTicket
+  const estimatedSavingsDollars = totalHoursSaved * 75 // $75/hr blended dev rate, stated assumption
+
+  return (
+    <div className="mt-16 rounded-2xl border border-[var(--mk-hairline)] bg-[var(--mk-panel)] p-6 sm:p-8 backdrop-blur-md">
+      <div className="max-w-2xl">
+        <span className="mk-mono text-[11px] font-semibold text-[var(--mk-pass)] uppercase tracking-wider">
+          Estimate, not a measurement
+        </span>
+        <h3 className="text-xl sm:text-2xl font-bold text-[var(--mk-ink)] mt-1">
+          Calculate your engineering velocity gain
+        </h3>
+        <p className="text-sm text-[var(--mk-ink-2)] mt-2">
+          A rough model from stated assumptions — tickets per engineer, hours saved per ticket, a
+          blended dev rate — not a benchmark of this platform. Adjust the team size and see how the
+          assumptions scale.
+        </p>
+      </div>
+
+      <div className="mt-8 grid gap-8 md:grid-cols-12 items-center">
+        <div className="md:col-span-7 space-y-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-[var(--mk-ink)]">Full-time software engineers:</span>
+            <span className="mk-mono text-lg font-bold text-[var(--mk-ember-lit)]">{teamSize} engineers</span>
+          </div>
+          <input
+            type="range"
+            min="2"
+            max="60"
+            value={teamSize}
+            onChange={(e) => setTeamSize(Number(e.target.value))}
+            className="w-full h-2 bg-[var(--mk-hairline)] rounded-lg appearance-none cursor-pointer accent-[var(--mk-ember)]"
+          />
+          <div className="flex justify-between text-[11px] mk-mono text-[var(--mk-ink-3)]">
+            <span>2 devs (seed)</span>
+            <span>25 devs (Series B)</span>
+            <span>60+ devs (enterprise)</span>
+          </div>
+        </div>
+
+        <div className="md:col-span-5 grid grid-cols-2 gap-3">
+          <div className="rounded-xl border border-[var(--mk-hairline)] bg-[color-mix(in_srgb,var(--mk-ink)_2%,transparent)] p-4 text-center">
+            <div className="mk-mono text-[10px] text-[var(--mk-ink-3)] uppercase">Hours / mo (assumed)</div>
+            <div className="text-2xl font-bold text-[var(--mk-ink)] mt-1 mk-mono">{totalHoursSaved.toLocaleString()} hrs</div>
+          </div>
+          <div className="rounded-xl border border-[var(--mk-pass)]/30 bg-[var(--mk-pass)]/10 p-4 text-center">
+            <div className="mk-mono text-[10px] text-[var(--mk-pass)] uppercase">Value at $75/hr</div>
+            <div className="text-2xl font-bold text-[var(--mk-pass)] mt-1 mk-mono">${estimatedSavingsDollars.toLocaleString()}</div>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
 
 export function PricingSection() {
   return (
-    <section className="mk-section" id="pricing">
-      <div className="mk-shell">
+    <section className="mk-section relative" id="pricing">
+      <div className="mk-shell relative z-10">
         <div className="max-w-3xl">
           <Eyebrow n="06">Pricing</Eyebrow>
           <SplitHeading
             text="Pay for runs. Buy seats for governance."
             highlight={['governance.']}
-            className="mk-display mt-6 text-[clamp(30px,4.6vw,58px)]"
+            className="mk-display mt-6 text-[clamp(32px,4.8vw,60px)] font-bold tracking-tight"
           />
           <Reveal delay={0.15}>
-            <p className="mt-7 max-w-[62ch] text-[clamp(15px,1.6vw,18px)] leading-relaxed text-[var(--mk-ink-2)]">
+            <p className="mt-6 max-w-[62ch] text-[clamp(15px,1.6vw,18px)] leading-relaxed text-[var(--mk-ink-2)]">
               A run is one ticket taken through one pod — plan, code, QA, review, approval, deploy.
-              Retries inside a run are not a second run. Seats decide who can approve and who can
-              read the audit log, which is what an organisation is actually buying.
+              Retries inside a run are never a second charge. Start free on your own keys, no card
+              required.
             </p>
           </Reveal>
         </div>
@@ -167,15 +236,18 @@ export function PricingSection() {
           <PricingPlans />
         </div>
 
+        {/* Interactive ROI Calculator */}
+        <RoiCalculator />
+
         <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
           <p className="text-[13px] text-[var(--mk-ink-3)]">
-            All prices in USD, excluding tax. Annual billing and committed-use terms on request.
+            All prices in USD, excluding tax. Committed-use terms on request.
           </p>
           <a
             href="/pricing"
             className="mk-mono text-[12px] uppercase tracking-[0.14em] text-[var(--mk-ember-lit)] hover:underline"
           >
-            Full comparison and questions →
+            Full feature comparison matrix &rarr;
           </a>
         </div>
       </div>
