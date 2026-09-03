@@ -1,18 +1,17 @@
 import type { CSSProperties } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Terminal } from 'lucide-react'
 import { MkButton } from '../ui'
 import { PLATFORM_FACTS } from '../content'
 import { HeroStage } from '../scene/HeroStage'
+import { HeroCockpit } from './HeroCockpit'
 import type { PipelinePhase } from '../scene/pipelineTimeline'
 
 /**
- * The hero: the claim, then the run.
+ * The hero: the claim, an interactive cockpit demo, then the run.
  *
- * The scene used to sit *behind* this copy, which meant it had to stay dim
- * enough not to fight the headline — so it never earned its place, and its
- * nodes could not be labelled without printing over the type. Giving it its
- * own band under the copy costs a little vertical space and buys a diagram
- * that is lit properly, framed properly, and names every stage.
+ * The instrument strip at the bottom is the same four counted facts the page
+ * always led with (`PLATFORM_FACTS` in `content.ts`) — the redesign changed
+ * the card styling, not the numbers.
  */
 export function Hero({
   phase,
@@ -21,13 +20,6 @@ export function Hero({
   phase: PipelinePhase | null
   onPhase: (phase: PipelinePhase) => void
 }) {
-  /**
-   * CSS-driven, not JS-driven. The headline below is this page's Largest
-   * Contentful Paint element; animating it from a motion library means it sits
-   * at opacity 0 in the served HTML until the bundle hydrates. As a plain CSS
-   * animation it starts at first paint, and `.mk-rise` no-ops under reduced
-   * motion at the stylesheet level, so no JS check is needed here either.
-   */
   const rise = (delay: number) => ({
     className: 'mk-rise',
     style: { '--mk-rise-delay': `${delay}s` } as CSSProperties,
@@ -41,75 +33,98 @@ export function Hero({
   ]
 
   return (
-    <section className="relative pb-8 pt-24 sm:pt-28">
-      {/* A single wash of heat behind the copy, so the type never sits on a
-          flat black field. */}
+    <section className="relative overflow-hidden pb-12 pt-28 sm:pt-36">
+      {/* Ambient background glows */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 h-[70%]"
+        className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 h-[550px] w-[800px] rounded-full blur-[140px] opacity-25"
         style={{
-          background:
-            'radial-gradient(46% 46% at 50% 22%, rgba(232, 99, 42, 0.1) 0%, transparent 72%)',
+          background: 'radial-gradient(circle, #e8632a 0%, #8b5cf6 45%, transparent 70%)',
+        }}
+      />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute top-48 -left-20 h-[360px] w-[360px] rounded-full blur-[120px] opacity-15"
+        style={{
+          background: 'radial-gradient(circle, #3b82f6 0%, transparent 70%)',
         }}
       />
 
       <div className="mk-shell relative z-10">
         <div className="mx-auto max-w-4xl text-center">
+          {/* Top announcement badge */}
           <div {...rise(0.05)} className="mk-rise flex justify-center">
-            <span className="mk-mono inline-flex items-center gap-2.5 rounded-full border border-[var(--mk-hairline-lit)] px-3.5 py-1.5 text-[11px] uppercase tracking-[0.16em] text-[var(--mk-ink-2)]">
-              <span className="mk-animate-breathe h-1.5 w-1.5 rounded-full bg-[var(--mk-ember)]" />
+            <span className="mk-mono inline-flex items-center gap-2.5 rounded-full border border-[var(--mk-hairline-lit)] bg-[var(--mk-panel-2)] px-4 py-1.5 text-[11px] uppercase tracking-[0.16em] text-[var(--mk-ink-2)] backdrop-blur-md shadow-[0_2px_10px_rgba(0,0,0,0.2)]">
+              <span className="relative flex h-2 w-2">
+                <span className="mk-radar-ping absolute inline-flex h-full w-full rounded-full bg-[var(--mk-ember)] opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--mk-ember)]" />
+              </span>
               Agentic development platform
             </span>
           </div>
 
-          <h1 className="mk-display mt-6 text-[clamp(34px,6vw,72px)]">
+          {/* Main Headline */}
+          <h1 className="mk-display mt-7 text-[clamp(36px,6.2vw,78px)] font-bold tracking-[-0.03em] leading-[1.08]">
             <span className="mk-rise block" style={{ '--mk-rise-delay': '0.12s' } as CSSProperties}>
               Ship agent work
             </span>
             <span className="mk-rise block" style={{ '--mk-rise-delay': '0.2s' } as CSSProperties}>
-              you can <span className="mk-lit">actually approve.</span>
+              you can <span className="mk-text-shimmer">actually approve.</span>
             </span>
           </h1>
 
+          {/* Subcopy */}
           <p
             {...rise(0.38)}
-            className="mk-rise mx-auto mt-5 max-w-[66ch] text-[clamp(14.5px,1.5vw,17px)] leading-relaxed text-[var(--mk-ink-2)]"
+            className="mk-rise mx-auto mt-6 max-w-[68ch] text-[clamp(15px,1.6vw,18px)] leading-relaxed text-[var(--mk-ink-2)]"
           >
-            ADLC runs a ticket from plan to production through a pod of agents — and stops it at a
-            gate you control. Who approves, what the reviewer had to score, which files the agent
-            was allowed to touch, what the run was allowed to cost.
+            Evolune OS runs a ticket from plan to production through a pod of agents — and stops it
+            at a gate you control. Who approves, what the reviewer had to score, which files the
+            agent was allowed to touch, what the run was allowed to cost.
           </p>
 
+          {/* CTA Buttons */}
           <div
             {...rise(0.5)}
-            className="mk-rise mt-6 flex flex-wrap items-center justify-center gap-3"
+            className="mk-rise mt-8 flex flex-wrap items-center justify-center gap-3.5"
           >
-            <MkButton to="/register">
-              Start free <ArrowRight className="h-4 w-4" />
+            <MkButton to="/register" className="mk-btn-luxury px-6 py-3 text-[14.5px]">
+              Start free sandbox <ArrowRight className="h-4 w-4 ml-1" />
             </MkButton>
-            <MkButton href="#how-it-works" variant="ghost">
-              See how a run works
+            <MkButton href="#interactive-cockpit" variant="ghost" className="px-5 py-3 text-[14.5px]">
+              <Terminal className="h-4 w-4 mr-1.5 text-[var(--mk-ember-lit)]" />
+              Try the live cockpit
             </MkButton>
           </div>
         </div>
       </div>
 
-      {/* The run itself, on its own stage. Full-bleed: the line should leave
-          the frame rather than stop inside a column. */}
-      <div {...rise(0.62)} className="mk-rise relative z-10 mt-6 w-full">
+      {/* Interactive demo: a fixed sample ticket run through the pipeline, the
+          gate, and the agent logs. Illustrative — see HeroCockpit.tsx. */}
+      <div id="interactive-cockpit" className="relative z-10 mt-14 sm:mt-20 px-4 sm:px-6">
+        <HeroCockpit />
+      </div>
+
+      {/* The Continuous Run Timeline Stage */}
+      <div {...rise(0.62)} className="mk-rise relative z-10 mt-12 w-full">
+        <div className="mk-shell text-center mb-4">
+          <span className="mk-mono text-[11px] uppercase tracking-[0.2em] text-[var(--mk-ink-3)]">
+            Runtime delivery line &amp; stage graph
+          </span>
+        </div>
         <HeroStage phase={phase} onPhase={onPhase} />
       </div>
 
       {/* Instrument strip. Every value is counted from the codebase. */}
-      <div {...rise(0.78)} className="mk-rise mk-shell relative z-10 mt-6">
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[var(--mk-hairline)] bg-[var(--mk-hairline)] sm:grid-cols-4">
+      <div {...rise(0.78)} className="mk-rise mk-shell relative z-10 mt-8">
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-[var(--mk-hairline)] bg-[var(--mk-hairline)] shadow-2xl sm:grid-cols-4">
           {stats.map((stat) => (
             <div
               key={stat.label}
-              className="bg-[color-mix(in_srgb,var(--mk-ground)_78%,transparent)] px-5 py-3.5 backdrop-blur-sm"
+              className="bg-[color-mix(in_srgb,var(--mk-ground)_90%,transparent)] px-6 py-4 backdrop-blur-md transition-colors hover:bg-[var(--mk-panel-2)]"
             >
               <div className="mk-readout-label">{stat.label}</div>
-              <div className="mk-readout-value mt-1.5 text-[clamp(19px,2.2vw,26px)]">
+              <div className="mk-readout-value mt-1.5 text-[clamp(18px,2vw,24px)]">
                 {stat.value}
               </div>
             </div>
