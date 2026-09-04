@@ -1,7 +1,7 @@
 {
   "name": "adlc",
-  "displayName": "ADLC",
-  "description": "Run the ADLC agent pipeline from VS Code — assign tickets, watch runs, review diffs, approve or reject deploys.",
+  "displayName": "Evolune OS",
+  "description": "Run the Evolune OS agent pipeline from VS Code — assign tickets, watch runs, review diffs, approve or reject deploys.",
   "version": "0.1.0",
   "publisher": "adlc",
   "private": true,
@@ -21,7 +21,7 @@
         "adlc.apiUrl": {
           "type": "string",
           "default": "http://localhost:8000",
-          "description": "Base URL of the ADLC backend (no /v1 suffix — the extension adds it)."
+          "description": "Base URL of the Evolune OS backend (no /v1 suffix — the extension adds it)."
         },
         "adlc.pollIntervalSeconds": {
           "type": "number",

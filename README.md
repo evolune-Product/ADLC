@@ -1,6 +1,6 @@
-# Agentic SDLC
+# Evolune OS
 
-An AI-powered Software Development Lifecycle orchestration platform. Connect GitHub and Jira, define skill files, build agents, group them into pods, and run tickets autonomously — from sprint planning through code, PR, QA, and deployment. Every production deploy requires explicit human approval.
+Evolune OS is an agentic development life cycle (ADLC) platform. Connect GitHub and Jira, define skill files, build agents, group them into pods, and run tickets autonomously — from sprint planning through code, PR, QA, and deployment. Every production deploy requires explicit human approval.
 
 ---
 

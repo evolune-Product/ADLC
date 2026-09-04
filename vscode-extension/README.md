@@ -1,4 +1,4 @@
-# ADLC for VS Code
+# Evolune OS for VS Code
 
 Bring the run stream into the editor: assign a ticket to the agent pipeline,
 watch runs update, review the PR diff, and approve or reject — without
@@ -8,7 +8,7 @@ here is a special extension-only backend path.
 
 ## Setup
 
-1. In the ADLC web app: **Settings → Developer**, create an API key with at
+1. In the Evolune OS web app: **Settings → Developer**, create an API key with at
    least `projects:read`, `runs:read` and `runs:write` scopes (add
    `runs:approve` if this key should also be able to approve/reject —
    deliberately a separate scope, same reasoning as CI tokens).

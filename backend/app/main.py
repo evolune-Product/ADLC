@@ -11,7 +11,7 @@ from app.routers import personas, simulations
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
 
-fastapi_app = FastAPI(title="Agentic SDLC API", version="1.1.0")
+fastapi_app = FastAPI(title="Evolune OS API", version="1.1.0")
 
 fastapi_app.add_middleware(
     CORSMiddleware,

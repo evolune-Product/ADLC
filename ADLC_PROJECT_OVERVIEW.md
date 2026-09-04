@@ -1,4 +1,4 @@
-# Agentic SDLC — Claude Code Context
+# Evolune OS — Claude Code Context
 
 > Read this file at the start of every session. All phases 1–10 are complete. Jump straight into the task.
 
@@ -6,7 +6,7 @@
 
 ## What This Project Is
 
-An AI-powered Software Development Lifecycle orchestration platform. A user connects GitHub + Jira, defines skill markdown files, builds AI agents from skills, groups agents into pods, onboards a project, then runs tickets through the pod. The platform autonomously: plans sprints → writes code → opens PRs → runs QA → waits for human approval → deploys. Every production deploy requires explicit human approval.
+Evolune OS is an agentic development life cycle (ADLC) orchestration platform. A user connects GitHub + Jira, defines skill markdown files, builds AI agents from skills, groups agents into pods, onboards a project, then runs tickets through the pod. The platform autonomously: plans sprints → writes code → opens PRs → runs QA → waits for human approval → deploys. Every production deploy requires explicit human approval.
 
 ---
 
@@ -35,7 +35,7 @@ E:\Evolune_Products\SDLC\
 │   │   └── middleware/              ← AuditMiddleware, auth_middleware
 │   └── migrations/                  ← Alembic (single migration: b48d141e700e)
 └── frontend/
-    ├── index.html                   ← title: "Agentic SDLC — AI-Powered Development"
+    ├── index.html                   ← title: "Evolune OS — Ship agent work you can actually approve"
     ├── vite.config.ts
     ├── tailwind.config.js
     ├── src/
@@ -693,7 +693,7 @@ Rules that matter:
    a built group — as OIDC SSO was — do not quietly delete it.
 10. **`POSITIONING` compares design intent, never quality.** It names Copilot,
    Cursor, Claude Code, Devin and Factory. No benchmark is implied and the
-   disclaimer under the table says so. Do not add a row that claims ADLC is
+   disclaimer under the table says so. Do not add a row that claims Evolune OS is
    faster or better at anything measurable.
 
 ## Enterprise Identity (OIDC SSO)
@@ -730,7 +730,7 @@ migrations/versions/f4a5b6c7d8e9_sso_connections.py
 
 ## MCP Server (`POST /mcp`)
 
-ADLC as tools any agent can call — JSON-RPC 2.0 over Streamable HTTP,
+Evolune OS as tools any agent can call — JSON-RPC 2.0 over Streamable HTTP,
 authenticated with the same scoped `adlc_live_…` API keys as the REST API.
 
 Tools: `list_projects` · `list_runs` · `get_run` · `start_run` ·
@@ -1337,7 +1337,7 @@ Basic-auth-plus-JSON.
 
 ## Company OS (steps 1-24, merged into `master`)
 
-A second product surface layered onto the SDLC platform, built across
+A second product surface layered onto the Evolune OS platform, built across
 multiple sessions on branch `company-os-foundation` and merged into `master`
 once all 24 steps passed 323/323 backend tests, a real migration
 upgrade/downgrade cycle, and an end-to-end browser walkthrough (register →
@@ -1573,7 +1573,7 @@ Tested both directions (`alembic upgrade head` / `downgrade -1` /
 5. **Landing page is public**: `/` and `/pricing` render with no auth check — no "Open Dashboard" button
 5b. **Two surfaces, one app**: the product UI is the light cream shadcn theme on `:root`; the marketing pages are a dark theme scoped to `[data-surface="marketing"]` (`src/styles/marketing.css`, all classes prefixed `mk-`), applied by `useMarketingSurface()` on mount and removed on unmount. Never define a `mk-` token on `:root`, and never use a shadcn token inside a marketing component — the two palettes must not meet.
 5c. **Auth belongs to marketing**: `AuthLayout` is on the marketing surface and carries `.mk-auth`, which **redefines the shadcn tokens** (`--background`, `--card`, `--border`, …) for that subtree. The login/register markup is unchanged and simply resolves dark; new auth pages inherit it for free.
-5d. **The app has a real dark mode now, and it is still not the marketing surface.** `.dark` in `index.css` is the product's dark token set — warm-biased blacks, lifted a step from the hero page's #08070a because tables need more separation between ground, card and border. Do not port the marketing grain/bloom/atmosphere into it. Brand continuity comes from *type*, not atmosphere: `AdlcMark` + the name "ADLC" everywhere, `.app-display` (Archivo) on headings, `.app-metric` (JetBrains Mono, tabular) on every measured number.
+5d. **The app has a real dark mode now, and it is still not the marketing surface.** `.dark` in `index.css` is the product's dark token set — warm-biased blacks, lifted a step from the hero page's #08070a because tables need more separation between ground, card and border. Do not port the marketing grain/bloom/atmosphere into it. Brand continuity comes from *type*, not atmosphere: `AdlcMark` + the name "Evolune OS" everywhere, `.app-display` (Archivo) on headings, `.app-metric` (JetBrains Mono, tabular) on every measured number.
 5e. **Status tints are remapped, not rewritten.** ~50 uses of Tailwind's `bg-red-50 text-red-700`-style pills across 12 files would be neon on a dark ground. `index.css` remaps exactly the utilities in use under `.dark` to low-alpha washes of the same hue. If you add a new tint class, add it to that list — `grep -ro "bg-[a-z]*-[0-9]*"` finds strays.
 6. **API base URL**: Frontend uses `VITE_API_URL` — no `/api` prefix in route definitions (Nginx strips it in prod)
 7. **Encryption**: All OAuth tokens must be Fernet-encrypted before DB insert — use `services/encryption.py`
