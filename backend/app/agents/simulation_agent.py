@@ -2,9 +2,10 @@
 Simulation Agent — persona-driven simulated user testing.
 
 WHAT THIS DOES THAT THE QA AGENT DOESN'T
-`agents/qa_agent.py` reads a PR diff and asks an LLM whether the code looks
-right — it never runs the application. This module drives a real, running app
-through a real headless-Chromium browser (Playwright), acting as a named
+`agents/qa_agent.py` runs the repo's own test suite in an isolated sandbox
+(`services/sandbox_service.py`) and asks an LLM to review the diff — neither
+one puts a user in front of the running product. This module drives a real,
+running app through a real headless-Chromium browser (Playwright), acting as a named
 Persona (`models/persona.py`): a free-text goal/behavior plus a starting URL.
 It is the closest thing this platform has to actually putting a user in front
 of the product before a human does.

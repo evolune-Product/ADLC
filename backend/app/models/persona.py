@@ -2,9 +2,11 @@
 Persona — a named simulated user the QA pipeline can drive through the app.
 
 WHY THIS EXISTS
-Today's QA stage (`agents/qa_agent.py`) reads a PR diff and asks an LLM whether
-the code looks right. It never runs the application. A Persona is the missing
-half: a free-text description of who is using the product and what they are
+Today's QA stage (`agents/qa_agent.py`) runs the repo's own test suite in an
+isolated sandbox (`services/sandbox_service.py`) and asks an LLM to review the
+diff. Neither one puts a user in front of the running product. A Persona is
+that missing half: a free-text description of who is using the product and
+what they are
 trying to do ("a first-time user trying to sign up and hit the free trial"),
 plus the URL they land on first. `agents/simulation_agent.py` drives a real
 browser as this persona and files what it finds — see that module's docstring.

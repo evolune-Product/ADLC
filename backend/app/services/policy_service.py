@@ -46,6 +46,7 @@ DEFAULT_POLICY = {
     "max_run_cost_cents": 0,
     "max_concurrent_runs": 0,
     "max_queue_depth": 0,
+    "conditions": [],
 }
 
 
@@ -87,6 +88,7 @@ def _as_dict(p: ApprovalPolicy) -> dict:
         "max_run_cost_cents": p.max_run_cost_cents,
         "max_concurrent_runs": p.max_concurrent_runs or 0,
         "max_queue_depth": p.max_queue_depth or 0,
+        "conditions": p.conditions or [],
     }
 
 
@@ -300,6 +302,88 @@ def check_concurrency(db: Session, *, project_id, org_id, policy: dict | None = 
                                running=running, waiting=waiting, limit=limit)
 
 
+# ── Conditional escalation: monetary thresholds, risk-level rules ────────────
+#
+# The gap this closes: CLAUDE.md named it explicitly — "the full spec section-18
+# policy-condition vocabulary: monetary thresholds, risk-level rules... only
+# min_approvers/approver_roles are real". Scoped to the workflow-approval path
+# only (see `_evaluate_workflow_approval` below) — the SDLC deploy gate
+# (`evaluate_deploy`) never evaluates conditions, because a `Run` has no
+# amount or risk field to check them against; a `Work` row does.
+
+_CONDITION_OPERATORS = {
+    "eq": lambda a, b: a == b,
+    "ne": lambda a, b: a != b,
+    "gte": lambda a, b: a is not None and a >= b,
+    "lte": lambda a, b: a is not None and a <= b,
+    "gt": lambda a, b: a is not None and a > b,
+    "lt": lambda a, b: a is not None and a < b,
+    "in": lambda a, b: a in (b or []),
+    "not_in": lambda a, b: a not in (b or []),
+}
+
+
+def _condition_field_value(field: str, work) -> object:
+    """The vocabulary a condition may key off — deliberately small, and drawn
+    only from columns/context keys `Work` already has, not a new schema.
+    `amount_cents` and `risk_level` live in `Work.context` (a free JSONB bag
+    every Work row already carries) because "how much is this request for"
+    and "how risky is it" are intake-form data, not columns this generic
+    model should grow just for policy's sake."""
+    if field == "amount_cents":
+        value = (work.context or {}).get("amount_cents")
+        return value if isinstance(value, (int, float)) else None
+    if field == "risk_level":
+        return (work.context or {}).get("risk_level")
+    if field == "department_id":
+        return str(work.department_id) if work.department_id else None
+    if field == "team_id":
+        return str(work.team_id) if work.team_id else None
+    if field == "work_type":
+        return work.type
+    return None
+
+
+def resolve_condition_override(conditions: list[dict], *, work) -> dict | None:
+    """
+    The single matching condition to apply, or None if no condition matches
+    (or there is nothing to match against — a workflow run with no linked
+    Work item, e.g. a manual trigger, has no fields for a condition to read).
+
+    "Monetary thresholds" and "risk-level rules" both reduce to the same
+    shape: escalate `min_approvers` (and optionally replace `approver_roles`)
+    once some field on the Work crosses a threshold.
+
+    When several conditions match, the one with the HIGHEST `min_approvers`
+    wins as a whole unit — this never mixes a numeric threshold from one
+    matched condition with a role list from another, a combination nobody
+    actually configured. "The most severe matching rule governs" is simpler
+    to reason about, and to explain in an audit log, than a field-by-field
+    merge across independently-authored conditions.
+    """
+    if not conditions or work is None:
+        return None
+
+    winner = None
+    for condition in conditions:
+        field = condition.get("field")
+        operator = condition.get("operator")
+        evaluator = _CONDITION_OPERATORS.get(operator)
+        candidate_need = condition.get("min_approvers")
+        if not field or evaluator is None or candidate_need is None:
+            continue
+        actual = _condition_field_value(field, work)
+        try:
+            matched = evaluator(actual, condition.get("value"))
+        except TypeError:
+            # A misconfigured condition (e.g. comparing a string with `gte`)
+            # must never crash the approval gate — it simply never matches.
+            matched = False
+        if matched and (winner is None or candidate_need > winner.get("min_approvers", 0)):
+            winner = condition
+    return winner
+
+
 # ── Company OS steps 17-18: workflow-approval-node policy gating ──────────────
 #
 # The `approval` node in workflow_engine.py has, until now, treated moving its
@@ -401,6 +485,13 @@ def _evaluate_workflow_approval(
     `approver_roles_present` check uses, adapted to a single-caller call site
     since a workflow approval endpoint approves one person at a time rather
     than evaluating a whole set of existing rows.
+
+    Before either of those checks, `resolve_condition_override` gets a look at
+    the execution's linked `Work` row (if any) and may escalate `min_approvers`
+    / replace `approver_roles` for this one evaluation — see that function's
+    docstring. The policy's own base values are what apply when no condition
+    matches, so a policy with an empty `conditions` list behaves exactly as it
+    did before this existed.
     """
     policy_row = db.query(ApprovalPolicy).filter(ApprovalPolicy.id == policy_id).first()
     if not policy_row:
@@ -410,10 +501,16 @@ def _evaluate_workflow_approval(
             reasons=[f"Referenced policy {policy_id} does not exist or was deleted"],
         )
     policy = _as_dict(policy_row)
-    need = policy.get("min_approvers", 1)
+
+    from app.models.workflow import WorkflowExecution
+    execution = db.query(WorkflowExecution).filter(WorkflowExecution.id == execution_id).first()
+    work = execution.work if execution else None
+    override = resolve_condition_override(policy.get("conditions") or [], work=work)
+    need = override.get("min_approvers", policy.get("min_approvers", 1)) if override else policy.get("min_approvers", 1)
+    effective_roles = override.get("approver_roles") if override and override.get("approver_roles") else policy.get("approver_roles")
 
     if approver_role is not None:
-        allowed_roles = set(policy.get("approver_roles") or [])
+        allowed_roles = set(effective_roles or [])
         if allowed_roles and approver_role not in allowed_roles:
             return WorkflowApprovalDecision(
                 outcome="deny", policy_id=policy_row.id, policy_name=policy["name"],

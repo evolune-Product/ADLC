@@ -26,6 +26,9 @@ frontend/dist-ssr/
 logs/
 *.log
 
+# Execution sandbox — QA-run repo checkouts on the Docker host (docker-compose.yml)
+sandbox_data/
+
 # OS
 .DS_Store
 Thumbs.db

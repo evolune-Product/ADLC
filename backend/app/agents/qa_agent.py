@@ -1,9 +1,28 @@
 """
-QA Agent — reviews the PR and runs basic checks.
+QA Agent — runs the PR's own tests inside an isolated sandbox, then reviews
+the diff with an LLM.
 
-Phase 7 implementation: code review via Claude (no live test runner yet).
-The agent reads the PR diff and checks it against the sprint plan.
-Returns pass/fail for the approval gate decision.
+Originally (Phase 7) this only asked Claude to read a diff and vote
+PASS/FAIL — real, but with no evidence the change actually runs. It now
+executes first: `sandbox_service.execute()` clones the branch and runs the
+project's own install/test/lint commands in a network-isolated container (see
+that module's docstring for why network is on for install and off for
+test/lint, and why an infra failure there is "skipped", never "failed").
+
+  * A real test failure is authoritative and skips the LLM call entirely —
+    there is nothing useful for a model to opine on when the suite already
+    disagrees with the change. It is retried against `dev`, exactly like a
+    request-changes verdict always was, and a `ReviewFinding(severity=
+    "critical", category="tests")` is written so the same policy gate that
+    blocks on the Reviewer agent's findings also blocks on a failing suite.
+  * A "skipped" outcome (no Docker, no recognised project type, sandbox
+    disabled, no repo connection, branch not checked out yet) falls back to
+    the original LLM-only review — every project this cannot yet execute
+    keeps working exactly as it did before this file changed, and the review
+    prompt says plainly that no execution backs it.
+  * A "passed" outcome is handed to the LLM as grounding, not as a
+    replacement for it — a green test suite says nothing about design,
+    security or missed edge cases, which is what the review prompt asks for.
 """
 import time
 import uuid
@@ -15,7 +34,9 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.agent import Agent
 from app.models.connection import Connection
+from app.models.insight import ReviewFinding
 from app.models.run import Run, RunStep
+from app.services import sandbox_service
 from app.services.encryption import decrypt_token
 from app.services.notification_service import emit_run_event
 
@@ -34,7 +55,6 @@ def run_qa_agent(state: dict, db: Session) -> dict:
     project    = state["project"]
     pod_agents = state["pod_agents"]
     sprint_plan = state.get("sprint_plan", "")
-    pr_url     = state.get("pr_url", "")
     pr_number  = state.get("pr_number")
     branch_name = state.get("branch_name", "")
     dev_retries = state.get("dev_retries", 0)
@@ -60,6 +80,12 @@ def run_qa_agent(state: dict, db: Session) -> dict:
         run.current_step = "qa:code_review"
         db.commit()
 
+    # ── Execute first: real evidence beats an LLM's opinion of a diff ──────
+    exec_result = _execute_tests(db, run_id, agent, project, branch_name)
+
+    if exec_result.outcome == "failed":
+        return _fail_from_execution(db, state, agent, exec_result, dev_retries, max_retries, start_ms)
+
     # Fetch PR diff from GitHub
     pr_diff = _get_pr_diff(project, pr_number, db)
 
@@ -76,6 +102,7 @@ def run_qa_agent(state: dict, db: Session) -> dict:
     user_msg = (
         f"Review this PR for quality and correctness.\n\n"
         f"**Sprint Plan:**\n{sprint_plan}\n\n"
+        f"{_execution_note(exec_result)}"
         f"**PR Diff:**\n```diff\n{pr_diff}\n```\n\n"
         "Answer:\n"
         "1. Does the implementation match the sprint plan? (yes/no)\n"
@@ -98,7 +125,8 @@ def run_qa_agent(state: dict, db: Session) -> dict:
         duration_ms = int(time.time() * 1000) - start_ms
         _write_step(db, run_id, str(agent.id), "qa", "code_review",
                     "success" if passed else "failed",
-                    {}, {"passed": passed, "review": review_text},
+                    {"execution": exec_result.as_dict()},
+                    {"passed": passed, "review": review_text},
                     review_text, duration_ms)
 
         emit_run_event(run_id, "run:step:completed", {
@@ -107,7 +135,8 @@ def run_qa_agent(state: dict, db: Session) -> dict:
             "output": {"passed": passed}
         })
 
-        test_results = {"passed": passed, "review": review_text, "retry": dev_retries}
+        test_results = {"passed": passed, "review": review_text, "retry": dev_retries,
+                         "execution": exec_result.as_dict()}
 
         if passed:
             return {**state, "test_results": test_results, "current_agent": "approval"}
@@ -131,9 +160,98 @@ def run_qa_agent(state: dict, db: Session) -> dict:
         error = f"QA agent error: {str(e)}"
         # On QA error, auto-pass to not block the run
         _write_step(db, run_id, str(agent.id) if agent else None, "qa", "code_review",
-                    "success", {}, {"passed": True, "message": f"QA error (auto-pass): {error}"},
+                    "success", {"execution": exec_result.as_dict()},
+                    {"passed": True, "message": f"QA error (auto-pass): {error}"},
                     error, duration_ms)
         return {**state, "test_results": {"passed": True, "message": f"Auto-pass (QA error)"}, "current_agent": "approval"}
+
+
+# ── Execution sandbox glue ────────────────────────────────────────────────────
+
+def _execute_tests(db: Session, run_id, agent: Agent | None, project: dict,
+                    branch_name: str) -> sandbox_service.ExecutionResult:
+    if not branch_name:
+        return sandbox_service.ExecutionResult(outcome="skipped", reason="No branch to check out yet")
+    creds = _repo_credentials(project, db)
+    if not creds:
+        return sandbox_service.ExecutionResult(outcome="skipped",
+                                                 reason="No repository connection configured")
+    token, provider, host = creds
+
+    start_ms = int(time.time() * 1000)
+    try:
+        result = sandbox_service.execute(
+            repo_name=project.get("repo_name", ""), branch=branch_name, token=token,
+            provider=provider, host=host, run_id=str(run_id),
+        )
+    except Exception as exc:                              # noqa: BLE001 — infra must never block QA
+        result = sandbox_service.ExecutionResult(outcome="skipped", reason=f"Sandbox error: {exc}")
+    duration_ms = int(time.time() * 1000) - start_ms
+
+    log_text = f"Execution: {result.outcome}" + (f" — {result.reason}" if result.reason else "")
+    emit_run_event(run_id, "run:step:log",
+                   {"runId": str(run_id), "stepName": "execute_tests", "log": log_text})
+    _write_step(db, run_id, str(agent.id) if agent else None, "qa", "execute_tests",
+                "failed" if result.outcome == "failed" else "success",
+                {"branch": branch_name}, result.as_dict(), log_text, duration_ms)
+    return result
+
+
+def _repo_credentials(project: dict, db: Session) -> tuple[str, str, str | None] | None:
+    cid = project.get("repo_connection_id")
+    if not cid:
+        return None
+    conn = db.query(Connection).filter(Connection.id == cid).first()
+    if not conn or not conn.access_token:
+        return None
+    try:
+        token = decrypt_token(conn.access_token)
+    except Exception:
+        return None
+    provider = (conn.type or "github").lower()
+    host = conn.workspace_url if provider == "gitlab" else None
+    return token, provider, host
+
+
+def _execution_note(result: sandbox_service.ExecutionResult) -> str:
+    if result.outcome == "skipped":
+        return (f"**Automated test execution:** not run ({result.reason}). "
+                "This review is LLM-only — treat it as advisory, not proof the change runs.\n\n")
+    tail = (result.test_output or "")[-2000:]
+    return (f"**Automated test execution: PASSED** (`{result.commands.get('test')}` "
+            f"in {result.duration_ms}ms)\n```\n{tail}\n```\n"
+            "Tests already confirm the change runs; focus your review on design, security "
+            "and edge cases a test suite would not catch.\n\n")
+
+
+def _fail_from_execution(db: Session, state: dict, agent: Agent | None,
+                          result: sandbox_service.ExecutionResult, dev_retries: int,
+                          max_retries: int, start_ms: int) -> dict:
+    """A real test failure is ground truth — skip the LLM opinion entirely and
+    record a critical ReviewFinding so the same severity gate that blocks on
+    the Reviewer agent's findings also blocks on a failing test suite."""
+    run_id = state["run_id"]
+    tail = (result.test_output or "")[-2000:]
+    message = f"Test suite failed (exit {result.exit_code}): {tail}"[:4000]
+    db.add(ReviewFinding(
+        run_id=run_id, agent_id=agent.id if agent else None,
+        severity="critical", category="tests", message=message,
+    ))
+    db.commit()
+
+    duration_ms = int(time.time() * 1000) - start_ms
+    _write_step(db, run_id, str(agent.id) if agent else None, "qa", "code_review", "failed",
+                {}, {"passed": False, "execution": result.as_dict()},
+                f"Tests failed — skipping LLM review.\n{message}", duration_ms)
+    emit_run_event(run_id, "run:step:completed",
+                   {"runId": run_id, "stepName": "code_review", "status": "failed",
+                    "output": {"passed": False}})
+
+    test_results = {"passed": False, "execution": result.as_dict(), "retry": dev_retries}
+    if dev_retries >= max_retries:
+        return {**state, "test_results": test_results, "status": "failed",
+                "errors": state.get("errors", []) + [f"QA failed after {dev_retries} retries (tests did not pass)"]}
+    return {**state, "test_results": test_results, "current_agent": "dev", "dev_retries": dev_retries + 1}
 
 
 def _get_pr_diff(project: dict, pr_number: int | None, db: Session) -> str:

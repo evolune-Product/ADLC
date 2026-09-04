@@ -70,6 +70,33 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
 
+    # Execution sandbox — QA runs the repo's own install/test/lint commands
+    # inside an ephemeral, network-isolated Docker container instead of only
+    # asking an LLM to opine on a diff. See services/sandbox_service.py.
+    sandbox_enabled: bool = True
+    sandbox_timeout_seconds: int = 600
+    sandbox_install_timeout_seconds: int = 300
+    sandbox_memory_limit: str = "2g"
+    sandbox_cpu_limit: float = 2.0
+    # Where this process (inside the `worker` container) checks repos out to.
+    sandbox_workdir: str = "/tmp/adlc-sandbox"
+    # The SAME directory's path on the Docker HOST, not inside this container.
+    # Required whenever the worker runs containerized (Docker-outside-of-Docker
+    # via the mounted socket) — the sibling containers this module spins up are
+    # created by the *host* daemon, which can only bind-mount host paths. Leave
+    # empty for native (non-Docker) dev, where there is no container boundary
+    # and the two paths are identical. See sandbox_service.py's module
+    # docstring, point 4, before changing this.
+    sandbox_host_path: str = ""
+
+    # Rate limiting — Redis-backed, fails open if Redis is unreachable rather
+    # than taking the API down. See services/rate_limit_service.py and
+    # middleware/rate_limit_middleware.py. 0 on any tier means unlimited.
+    rate_limit_enabled: bool = True
+    rate_limit_default_per_minute: int = 300
+    rate_limit_auth_per_minute: int = 10
+    rate_limit_api_per_minute: int = 120
+
     # Enterprise / self-hosted
     license_key: str = ""
     deployment_mode: str = "cloud"      # cloud | self_hosted

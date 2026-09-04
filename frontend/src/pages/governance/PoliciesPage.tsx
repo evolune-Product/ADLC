@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { LoadingSkeleton } from '@/components/ui/LoadingSkeleton'
 import { useDeletePolicy, usePolicies, useSavePolicy } from '@/hooks/usePlatform'
-import type { ApprovalPolicy, Severity } from '@/types/platform'
+import type { ApprovalPolicy, PolicyCondition, Severity } from '@/types/platform'
 
 const SEVERITIES: (Severity | '')[] = ['', 'low', 'medium', 'high', 'critical']
 const ENVIRONMENTS = ['*', 'dev', 'qa', 'staging', 'production']
@@ -21,8 +21,19 @@ const EMPTY = {
   protected_branches: [] as string[],
   max_files_changed: 0,
   max_run_cost_cents: 0,
+  conditions: [] as PolicyCondition[],
   is_active: true,
 }
+
+const CONDITIONS_PLACEHOLDER = `[
+  {
+    "field": "amount_cents",
+    "operator": "gte",
+    "value": 1000000,
+    "min_approvers": 3,
+    "approver_roles": ["owner"]
+  }
+]`
 
 function PolicyForm({ initial, onSave, onCancel, saving }: {
   initial: Partial<ApprovalPolicy>
@@ -32,6 +43,26 @@ function PolicyForm({ initial, onSave, onCancel, saving }: {
 }) {
   const [form, setForm] = useState({ ...EMPTY, ...initial })
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }))
+
+  // Conditions are edited as raw JSON, not a bespoke condition builder —
+  // this is advanced, rarely-touched config, and a textarea that always
+  // round-trips is a better v1 than a form that silently can't express
+  // every field/operator combination the backend already accepts. Kept as
+  // its own string so a mid-edit invalid document never crashes the form;
+  // it is only parsed (and only blocks Save) when it doesn't parse.
+  const [conditionsText, setConditionsText] = useState(() => JSON.stringify(form.conditions, null, 2))
+  const [conditionsError, setConditionsError] = useState<string | null>(null)
+
+  const handleSave = () => {
+    try {
+      const parsed = conditionsText.trim() ? JSON.parse(conditionsText) : []
+      if (!Array.isArray(parsed)) throw new Error('Conditions must be a JSON array')
+      setConditionsError(null)
+      onSave({ ...form, conditions: parsed })
+    } catch (err) {
+      setConditionsError(err instanceof Error ? err.message : 'Invalid JSON')
+    }
+  }
 
   return (
     <div className="bg-card rounded-lg border border-foreground p-5 space-y-4">
@@ -140,8 +171,30 @@ function PolicyForm({ initial, onSave, onCancel, saving }: {
         </label>
       </div>
 
+      <label className="space-y-1 block">
+        <span className="onto-label">
+          Escalation conditions — monetary thresholds, risk-level rules (JSON)
+        </span>
+        <textarea
+          rows={7}
+          value={conditionsText}
+          onChange={(e) => { setConditionsText(e.target.value); setConditionsError(null) }}
+          placeholder={CONDITIONS_PLACEHOLDER}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono"
+        />
+        <p className="text-xs text-muted-foreground">
+          Each entry: a field/operator/value to match against the request, and the
+          min_approvers (and optionally approver_roles) that apply instead of the base
+          settings above when it matches. Fields: amount_cents, risk_level, department_id,
+          team_id, work_type. Empty array — the default — means no escalation, ever.
+        </p>
+        {conditionsError && (
+          <p className="text-xs text-destructive">{conditionsError}</p>
+        )}
+      </label>
+
       <div className="flex gap-2">
-        <Button disabled={!form.name || saving} onClick={() => onSave(form)}>Save policy</Button>
+        <Button disabled={!form.name || saving} onClick={handleSave}>Save policy</Button>
         <Button variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
@@ -219,6 +272,12 @@ export default function PoliciesPage() {
                   {(p.protected_paths.length > 0 || p.protected_branches.length > 0) && (
                     <p className="text-xs text-muted-foreground mt-1 font-mono truncate">
                       protected: {[...p.protected_paths, ...p.protected_branches].join(', ')}
+                    </p>
+                  )}
+                  {p.conditions?.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {p.conditions.length} escalation condition{p.conditions.length === 1 ? '' : 's'}
+                      {' '}(up to {Math.max(...p.conditions.map((c) => c.min_approvers || 0))} approvers)
                     </p>
                   )}
                 </div>

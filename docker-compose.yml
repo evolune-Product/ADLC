@@ -85,9 +85,34 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-sdlc_user}:${POSTGRES_PASSWORD:-sdlc_pass}@postgres:5432/${POSTGRES_DB:-agentic_sdlc}
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: minio:9000
+      # services/sandbox_service.py's Docker-outside-of-Docker path fix (see
+      # that module's docstring, point 4): the socket below talks to the
+      # HOST's daemon, so a bind mount handed to it must be a host path, not
+      # this container's own. SANDBOX_HOST_PATH must equal wherever
+      # ./sandbox_data resolves to on the actual deploy host (e.g.
+      # /opt/agentic-sdlc/sandbox_data on the VPS) — set it in backend/.env,
+      # it cannot be inferred from inside the container.
+      SANDBOX_WORKDIR: /tmp/adlc-sandbox
+      SANDBOX_HOST_PATH: ${SANDBOX_HOST_PATH:-}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+    # Docker-outside-of-Docker: the QA agent's execution sandbox
+    # (app/services/sandbox_service.py) asks the HOST's own Docker daemon to
+    # run each ticket's tests in a throwaway sibling container, rather than
+    # nesting a second daemon inside this one. The socket's group ownership on
+    # the host decides who may use it; DOCKER_GID must be that group's numeric
+    # id (`getent group docker | cut -d: -f3` on the host — commonly 999 on
+    # Debian/Ubuntu, but verify rather than assume) so the container's non-root
+    # `appuser` (see backend/Dockerfile) can reach it without running as root.
+    # `./sandbox_data` is a real host directory, not an opaque named volume,
+    # because sandbox_service needs to hand the *host* path of a run's
+    # checkout to the sibling containers it creates (SANDBOX_HOST_PATH above).
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./sandbox_data:/tmp/adlc-sandbox
+    group_add:
+      - "${DOCKER_GID:-999}"
     command: celery -A celery_app worker --loglevel=info
     # Override the backend image's baked-in HEALTHCHECK (curl localhost:8000) —
     # this container runs Celery, not gunicorn, so nothing ever listens on

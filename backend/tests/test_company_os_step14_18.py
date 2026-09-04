@@ -178,7 +178,8 @@ class TestResolveDeptTeamMentions:
 # ── workflow-approval-node policy gating (steps 17-18) ─────────────────────────
 
 class _Policy:
-    def __init__(self, *, min_approvers=2, approver_roles=None, name="Two-approver gate"):
+    def __init__(self, *, min_approvers=2, approver_roles=None, name="Two-approver gate",
+                 conditions=None):
         self.id = uuid.uuid4()
         self.name = name
         self.environment = "*"
@@ -193,6 +194,7 @@ class _Policy:
         self.max_run_cost_cents = 0
         self.max_concurrent_runs = 0
         self.max_queue_depth = 0
+        self.conditions = conditions or []
 
 
 class _Approval:
@@ -274,3 +276,183 @@ class TestEvaluateWorkflowApproval:
             db = _SequencedStubSession(Approval, [rejection_rows, approval_rows], by_model={ApprovalPolicy: [policy]})
             decision = policy_service.evaluate_workflow_approval(db, execution_id=uuid.uuid4(), policy_id=policy.id)
             assert decision.outcome in ("allow", "deny", "require_approval")
+
+
+# ── conditional escalation: monetary thresholds, risk-level rules ─────────────
+
+class _Work:
+    def __init__(self, *, amount_cents=None, risk_level=None, department_id=None,
+                 team_id=None, work_type=None):
+        context = {}
+        if amount_cents is not None:
+            context["amount_cents"] = amount_cents
+        if risk_level is not None:
+            context["risk_level"] = risk_level
+        self.context = context
+        self.department_id = department_id
+        self.team_id = team_id
+        self.type = work_type
+
+
+class _Execution:
+    def __init__(self, work=None):
+        self.id = uuid.uuid4()
+        self.work = work
+
+
+class TestResolveConditionOverride:
+    """Pure-function tests — no DB, no stub session, matching how the rest of
+    this file tests `_scope_label` and `resolve_dept_team_mentions` directly."""
+
+    def test_no_conditions_is_no_override(self):
+        assert policy_service.resolve_condition_override([], work=_Work(amount_cents=999_999)) is None
+
+    def test_no_work_is_no_override_even_with_conditions(self):
+        conditions = [{"field": "amount_cents", "operator": "gte", "value": 100, "min_approvers": 3}]
+        assert policy_service.resolve_condition_override(conditions, work=None) is None
+
+    def test_amount_over_threshold_matches(self):
+        conditions = [{"field": "amount_cents", "operator": "gte", "value": 1_000_000, "min_approvers": 3}]
+        work = _Work(amount_cents=1_500_000)
+        assert policy_service.resolve_condition_override(conditions, work=work) == conditions[0]
+
+    def test_amount_under_threshold_does_not_match(self):
+        conditions = [{"field": "amount_cents", "operator": "gte", "value": 1_000_000, "min_approvers": 3}]
+        work = _Work(amount_cents=500_000)
+        assert policy_service.resolve_condition_override(conditions, work=work) is None
+
+    def test_missing_amount_on_work_does_not_match_a_numeric_condition(self):
+        conditions = [{"field": "amount_cents", "operator": "gte", "value": 1, "min_approvers": 3}]
+        assert policy_service.resolve_condition_override(conditions, work=_Work()) is None
+
+    def test_risk_level_eq_matches(self):
+        conditions = [{"field": "risk_level", "operator": "eq", "value": "critical", "min_approvers": 4}]
+        work = _Work(risk_level="critical")
+        assert policy_service.resolve_condition_override(conditions, work=work) == conditions[0]
+
+    def test_work_type_in_list_matches(self):
+        conditions = [{"field": "work_type", "operator": "in", "value": ["expense", "purchase"],
+                       "min_approvers": 2}]
+        assert policy_service.resolve_condition_override(conditions, work=_Work(work_type="expense")) == conditions[0]
+
+    def test_department_id_matches_as_a_string(self):
+        dept_id = uuid.uuid4()
+        conditions = [{"field": "department_id", "operator": "eq", "value": str(dept_id), "min_approvers": 2}]
+        work = _Work(department_id=dept_id)
+        assert policy_service.resolve_condition_override(conditions, work=work) == conditions[0]
+
+    def test_most_restrictive_of_several_matching_conditions_wins(self):
+        conditions = [
+            {"field": "amount_cents", "operator": "gte", "value": 100_000, "min_approvers": 2},
+            {"field": "amount_cents", "operator": "gte", "value": 1_000_000, "min_approvers": 5},
+            {"field": "amount_cents", "operator": "gte", "value": 500_000, "min_approvers": 3},
+        ]
+        work = _Work(amount_cents=2_000_000)  # matches all three
+        winner = policy_service.resolve_condition_override(conditions, work=work)
+        assert winner["min_approvers"] == 5
+
+    def test_non_matching_and_matching_conditions_mixed(self):
+        conditions = [
+            {"field": "risk_level", "operator": "eq", "value": "low", "min_approvers": 1},
+            {"field": "risk_level", "operator": "eq", "value": "high", "min_approvers": 4},
+        ]
+        work = _Work(risk_level="high")
+        winner = policy_service.resolve_condition_override(conditions, work=work)
+        assert winner["min_approvers"] == 4
+
+    def test_malformed_condition_is_skipped_not_a_crash(self):
+        conditions = [
+            {"field": "amount_cents", "operator": "gte", "value": "not-a-number", "min_approvers": 5},
+            {"field": "amount_cents", "operator": "no-such-operator", "value": 1, "min_approvers": 5},
+            {"operator": "gte", "value": 1, "min_approvers": 5},          # no field
+            {"field": "amount_cents", "operator": "gte", "value": 1},    # no min_approvers
+        ]
+        work = _Work(amount_cents=1_000_000)
+        assert policy_service.resolve_condition_override(conditions, work=work) is None
+
+
+class TestConditionsWiredIntoWorkflowApproval:
+    """The end-to-end path: a condition on the policy actually changes how
+    many approvals `evaluate_workflow_approval` requires for THIS execution,
+    without touching the policy's own base `min_approvers`."""
+
+    def test_high_value_work_escalates_required_approvals(self):
+        from app.models.governance import ApprovalPolicy
+        from app.models.run import Approval
+        from app.models.workflow import WorkflowExecution
+
+        conditions = [{"field": "amount_cents", "operator": "gte", "value": 1_000_000, "min_approvers": 3}]
+        policy = _Policy(min_approvers=1, conditions=conditions)
+        execution = _Execution(work=_Work(amount_cents=2_000_000))
+        one_vote = _Approval(reviewer_id=uuid.uuid4(), decision="approved")
+
+        db = _SequencedStubSession(
+            Approval, [[], [one_vote]],
+            by_model={ApprovalPolicy: [policy], WorkflowExecution: [execution]},
+        )
+        decision = policy_service.evaluate_workflow_approval(
+            db, execution_id=execution.id, policy_id=policy.id,
+        )
+        # One vote is not enough — the condition raised the bar from 1 to 3.
+        assert decision.outcome == "require_approval"
+        assert decision.approvals_required == 3
+
+    def test_low_value_work_keeps_the_base_policy(self):
+        from app.models.governance import ApprovalPolicy
+        from app.models.run import Approval
+        from app.models.workflow import WorkflowExecution
+
+        conditions = [{"field": "amount_cents", "operator": "gte", "value": 1_000_000, "min_approvers": 3}]
+        policy = _Policy(min_approvers=1, conditions=conditions)
+        execution = _Execution(work=_Work(amount_cents=100))
+        one_vote = _Approval(reviewer_id=uuid.uuid4(), decision="approved")
+
+        db = _SequencedStubSession(
+            Approval, [[], [one_vote]],
+            by_model={ApprovalPolicy: [policy], WorkflowExecution: [execution]},
+        )
+        decision = policy_service.evaluate_workflow_approval(
+            db, execution_id=execution.id, policy_id=policy.id,
+        )
+        assert decision.outcome == "allow"
+        assert decision.approvals_required == 1
+
+    def test_no_linked_work_item_never_escalates(self):
+        from app.models.governance import ApprovalPolicy
+        from app.models.run import Approval
+        from app.models.workflow import WorkflowExecution
+
+        conditions = [{"field": "amount_cents", "operator": "gte", "value": 1, "min_approvers": 9}]
+        policy = _Policy(min_approvers=1, conditions=conditions)
+        execution = _Execution(work=None)  # e.g. a manually-triggered workflow
+        one_vote = _Approval(reviewer_id=uuid.uuid4(), decision="approved")
+
+        db = _SequencedStubSession(
+            Approval, [[], [one_vote]],
+            by_model={ApprovalPolicy: [policy], WorkflowExecution: [execution]},
+        )
+        decision = policy_service.evaluate_workflow_approval(
+            db, execution_id=execution.id, policy_id=policy.id,
+        )
+        assert decision.outcome == "allow"
+        assert decision.approvals_required == 1
+
+    def test_condition_can_narrow_which_roles_may_approve(self):
+        from app.models.governance import ApprovalPolicy
+        from app.models.run import Approval
+        from app.models.workflow import WorkflowExecution
+
+        conditions = [{"field": "amount_cents", "operator": "gte", "value": 1_000_000,
+                       "min_approvers": 2, "approver_roles": ["owner"]}]
+        policy = _Policy(min_approvers=1, approver_roles=["owner", "admin", "member"],
+                          conditions=conditions)
+        execution = _Execution(work=_Work(amount_cents=5_000_000))
+
+        db = _StubSession({ApprovalPolicy: [policy], WorkflowExecution: [execution]})
+        decision = policy_service.evaluate_workflow_approval(
+            db, execution_id=execution.id, policy_id=policy.id, approver_role="member",
+        )
+        # "member" is allowed by the base policy but not by the escalated,
+        # condition-narrowed role list — the condition must win.
+        assert decision.outcome == "deny"
+        assert "not permitted" in decision.reasons[0]

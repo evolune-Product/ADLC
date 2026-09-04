@@ -67,6 +67,10 @@ class PolicyBody(BaseModel):
     # 0 means unlimited for both — the same convention as the caps above.
     max_concurrent_runs: int = Field(0, ge=0)
     max_queue_depth: int = Field(0, ge=0)
+    # Conditional escalation for the workflow-approval path — see
+    # policy_service.resolve_condition_override. Each entry:
+    # {field, operator, value, min_approvers, approver_roles?}.
+    conditions: list[dict] = []
     is_active: bool = True
 
 
@@ -87,6 +91,7 @@ def _policy_out(p: ApprovalPolicy) -> dict:
         "max_run_cost_cents": p.max_run_cost_cents,
         "max_concurrent_runs": p.max_concurrent_runs or 0,
         "max_queue_depth": p.max_queue_depth or 0,
+        "conditions": p.conditions or [],
         "is_active": p.is_active,
         "created_at": p.created_at.isoformat() if p.created_at else None,
     }

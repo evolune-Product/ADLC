@@ -52,6 +52,11 @@ anthropic==0.39.0
 langgraph==0.2.53
 langchain-anthropic==0.3.0
 
+# Execution sandbox — talks to the Docker daemon over the socket mounted into
+# the `worker` container to run a project's own tests (services/sandbox_service.py).
+docker==7.1.0
+PyYAML==6.0.3
+
 # Billing (optional — the platform runs without it configured)
 stripe==11.4.0
 

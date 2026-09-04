@@ -102,6 +102,14 @@ const PLATFORM_SCHEMA = {
             text: 'Yes, on the Enterprise plan — self-hosted or in your own VPC, against stock PostgreSQL 15. No external vendor is load-bearing: embeddings fall back to a local deterministic embedder, models can be a local Ollama, and with no payment processor configured the platform bills by invoice.',
           },
         },
+        {
+          '@type': 'Question',
+          name: 'Does the approval policy work the same across GitHub and GitLab, and across model vendors?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Yes. Approval policy — minimum approvers, reviewer-score thresholds, protected paths and branches, and per-run cost caps — is enforced by the same policy engine regardless of which repository host the change is on or which model vendor the agent that wrote it used. A team on GitHub today and GitLab tomorrow, or Claude for one agent role and a local Ollama for another, does not reconfigure governance to do it.',
+          },
+        },
       ],
     },
   ],

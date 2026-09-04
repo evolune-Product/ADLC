@@ -194,6 +194,20 @@ export interface SourceReadResult {
 }
 
 // ─── Governance ──────────────────────────────────────────────────────────────
+// Conditional escalation for the workflow-approval path — see
+// policy_service.resolve_condition_override on the backend. `min_approvers`
+// on a condition REPLACES the policy's base value when that condition
+// matches; it does not add to it. `field` is deliberately a plain string
+// (not a union) so a value this frontend doesn't yet know a label for still
+// round-trips through the JSON editor instead of being rejected by the type.
+export interface PolicyCondition {
+  field: string          // 'amount_cents' | 'risk_level' | 'department_id' | 'team_id' | 'work_type'
+  operator: 'eq' | 'ne' | 'gte' | 'lte' | 'gt' | 'lt' | 'in' | 'not_in'
+  value: unknown
+  min_approvers: number
+  approver_roles?: string[]
+}
+
 export interface ApprovalPolicy {
   id: string
   name: string
@@ -208,6 +222,7 @@ export interface ApprovalPolicy {
   protected_branches: string[]
   max_files_changed: number
   max_run_cost_cents: number
+  conditions: PolicyCondition[]
   is_active: boolean
   created_at: string
 }

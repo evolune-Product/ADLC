@@ -10,6 +10,7 @@ from app.routers import departments, teams, work, desk, workflows, company_apis,
 from app.routers import personas, simulations
 from app.routers.organizations import router as orgs_router, inv_router
 from app.middleware.audit_middleware import AuditMiddleware
+from app.middleware.rate_limit_middleware import RateLimitMiddleware
 
 fastapi_app = FastAPI(title="Evolune OS API", version="1.1.0")
 
@@ -21,6 +22,9 @@ fastapi_app.add_middleware(
     allow_headers=["*"],
 )
 fastapi_app.add_middleware(AuditMiddleware)
+# Outermost — every request is counted before it reaches audit logging, CORS
+# handling, or the route itself. See middleware/rate_limit_middleware.py.
+fastapi_app.add_middleware(RateLimitMiddleware)
 
 fastapi_app.include_router(auth.router,             prefix="/auth",       tags=["auth"])
 fastapi_app.include_router(connections.router,      prefix="/connections", tags=["connections"])
@@ -83,7 +87,9 @@ fastapi_app.include_router(company_dashboard.router, prefix="",            tags=
 
 # ── Simulated Persona QA ───────────────────────────────────────────────────
 # Persona-driven simulated user testing — deepens the existing QA pipeline
-# stage (agents/qa_agent.py does static code review only) without touching it.
+# stage (agents/qa_agent.py runs the repo's own test suite in an isolated
+# sandbox, see services/sandbox_service.py; it does not drive the live app
+# through a browser) without touching it.
 fastapi_app.include_router(personas.router,       prefix="/personas",      tags=["personas"])
 fastapi_app.include_router(simulations.router,    prefix="/simulations",   tags=["simulations"])
 

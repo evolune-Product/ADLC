@@ -15,9 +15,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Build deps for psycopg2 / cryptography, removed in the same layer.
+# Build deps for psycopg2 / cryptography, plus git (services/sandbox_service.py
+# shells out to it to check out a run's branch before executing its tests),
+# removed in the same layer.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential libpq-dev curl \
+ && apt-get install -y --no-install-recommends build-essential libpq-dev curl git \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -1506,7 +1506,9 @@ end to end rather than assuming:
     whole-product gap**, not newly introduced by Company OS; rate-limiting
     only the new endpoints while every Phase 1-12 endpoint stays unlimited
     would be inconsistent and was correctly out of scope for a hardening
-    pass on one feature area.
+    pass on one feature area. **Fixed in a later session — see "Rate
+    Limiting" below** — applied product-wide via one middleware for exactly
+    that reason, not scoped to Company OS's own endpoints.
   - *Audit completeness*: proved with a real script against Postgres (see
     step 19) rather than asserted — a workflow execution genuinely produces
     audit rows with the right `org_id`.
@@ -1526,9 +1528,14 @@ Tested both directions (`alembic upgrade head` / `downgrade -1` /
   against department names — see its own docstring)
 - `webhook` and `sub_workflow` workflow node types (loud `NotImplementedError`,
   not a silent no-op — see `workflow_engine.py`'s module docstring)
-- The full spec section-18 policy-condition vocabulary: monetary thresholds,
-  risk-level rules, department/team/user/agent/environment/action-type
-  conditions (only `min_approvers`/`approver_roles` are real)
+- The full spec section-18 policy-condition vocabulary is now **partly**
+  real, not deferred whole: `ApprovalPolicy.conditions` (see "Rate Limiting"
+  section's sibling, below) lets a policy escalate `min_approvers` and
+  replace `approver_roles` when a matched condition's field/operator/value
+  hits — amount_cents, risk_level, department_id, team_id, work_type are all
+  live. User/agent/environment/action-type conditions are still not —
+  `Work` has no columns for them yet, and this session scoped to what the
+  existing model already carries rather than growing the schema further.
 - SAML SSO / SCIM (same pre-existing gap named under "Enterprise Identity"
   above — OIDC only)
 - The other five company template types from the original spec wishlist
@@ -1536,13 +1543,109 @@ Tested both directions (`alembic upgrade head` / `downgrade -1` /
 - Fine-grained per-agent MCP tool attachment (MCP scoping today is
   org/department/team-level via `ToolGrant`, not "this specific agent may
   call this specific MCP tool and no other")
-- Any form of rate limiting, anywhere in the product (pre-existing gap, not
-  introduced or fixed by this branch — see step 24 above)
+- ~~Any form of rate limiting~~ — **fixed**, product-wide, in a later
+  session. See "Rate Limiting" below.
 - Marketplace creator payouts for `kind="company"` listings (same
   pre-existing gap named under "What Still Isn't Built" below, now also true
   for the new kind)
 
 ---
+
+## Execution Sandbox (QA agent)
+
+Closes the gap `qa_agent.py` documented about itself since Phase 7: "code
+review via Claude (no live test runner yet)." QA now runs a run's own
+install/test/lint commands inside an ephemeral, network-isolated Docker
+container before asking an LLM to review anything. Full design reasoning
+(the command-trust boundary, why install is networked and test/lint are not,
+why an infra failure is "skipped" and never "failed") lives in
+`sandbox_service.py`'s own module docstring — read that before changing this.
+
+```
+backend/app/services/sandbox_service.py   ← clone, config resolution, container run
+backend/app/agents/qa_agent.py            ← calls it before the LLM review
+backend/tests/test_sandbox_service.py     ← Docker-free unit tests + one
+                                             self-skipping live-Docker smoke test
+docker-compose.yml                        ← worker: docker.sock mount, sandbox_data
+                                             bind mount, DOCKER_GID
+backend/Dockerfile                        ← +git (needed to clone a run's branch)
+```
+
+- **A project opts in with `.evolune.yml` at its repo root** (`.adlc.yml` is
+  also read, for repos that haven't renamed): `image`, `install`, `test`,
+  `lint` keys, plain shell strings. With no such file, a fixed heuristic keyed
+  off manifest files (`package.json`, `requirements.txt`, `pyproject.toml`,
+  `go.mod`, `Cargo.toml`, `Gemfile`) picks reasonable defaults. Neither path
+  is ever influenced by an LLM — an agent-authored ticket description must
+  never be able to become a shell command this pipeline executes.
+- **A real test failure skips the LLM review entirely** and writes a
+  `ReviewFinding(severity="critical", category="tests")` directly, so the
+  existing `policy_service.evaluate_deploy` severity gate blocks on it exactly
+  as it already blocks on a Reviewer-agent finding — no new policy code was
+  needed. A `"skipped"` outcome (no Docker, unrecognised project, no repo
+  connection, sandbox disabled) falls back to the original LLM-only review,
+  byte-for-byte the same behaviour every project had before this existed.
+- **Docker-outside-of-Docker, and the one thing that will bite you.** The
+  `worker` container talks to the *host's* Docker daemon over the mounted
+  socket — it is not itself the host. `SANDBOX_HOST_PATH` must be set to
+  wherever `./sandbox_data` actually resolves to on the deploy host (e.g.
+  `/opt/agentic-sdlc/sandbox_data`); get it wrong and a sandbox run silently
+  mounts an empty directory into the sibling container instead of the real
+  checkout, and "tests" pass or fail against nothing. See
+  `sandbox_service.py::_host_path` before touching this.
+- **Not verified against a live Docker daemon in this session** — this
+  machine has none. Every Docker-free code path (config resolution, clone
+  failure handling, host-path translation, the settings-disabled short
+  circuit) is pinned by a real test; the actual `docker run` path is reasoned
+  and follows the bind-mount contract docker-py documents, but the first real
+  confirmation is the next deploy. Check by opening a run's steps after one
+  completes and confirming the `execute_tests` step's `output.outcome` reads
+  `"passed"` or `"failed"` — not `"skipped"`, which means it fell back.
+- **`worker` gets the Docker socket; `backend` (the API/gunicorn container)
+  does not.** Execution only ever happens inside the Celery task pipeline, and
+  keeping the API container's attack surface unchanged was deliberate — the
+  same reasoning the Dockerfile already gives for running as a non-root
+  `appuser`.
+
+## Rate Limiting
+
+Closes the whole-product gap Company OS step 24's security review named and
+left open: "grepped the whole backend (ratelimit, rate_limit, slowapi,
+throttle) — nothing exists anywhere in this codebase, on any surface, old or
+new." Redis-backed, fixed-window counters, applied to every request by one
+ASGI middleware rather than per-router — a cap only some entry points respect
+is not a cap, the same reasoning `check_concurrency`'s own docstring already
+gives for the run-concurrency policy.
+
+```
+backend/app/services/rate_limit_service.py      ← the counter (INCR+EXPIRE), fails open
+backend/app/middleware/rate_limit_middleware.py ← tiers by path, identity resolution
+backend/tests/test_rate_limit.py                ← real Redis, not mocked
+```
+
+- **Three tiers by path**, not one blanket number: `auth` (`/auth/login`,
+  `/auth/register` — always IP-keyed, since there is no credential yet for the
+  attacker this tier exists to slow down), `api` (`/v1/*` and `/mcp` — the
+  metered, cost-bearing surface), `default` (everything else, a generous
+  floor). Identity is a truncated hash of the bearer token when one is
+  present, so a JWT and an `adlc_live_…` API key are both handled without the
+  middleware needing to parse or validate either.
+- **Fails open, not closed.** An unreachable Redis logs a warning and lets the
+  request through rather than taking the whole API down over its rate
+  limiter's own dependency — the same trade this codebase already makes for
+  embeddings, Stripe, and the execution sandbox above.
+- **Tested against a real local Redis**, not a mock — this repo's own CI runs
+  directly on the GitHub-hosted runner's VM, so a live Redis is as cheap to
+  expect as the Postgres service container every other test already assumes.
+  One test (`TestFailsOpen`) still proves the degrade-gracefully path without
+  a live dependency, by pointing the client at a port nothing listens on.
+- **A redis-asyncio client is bound to the event loop that created it.**
+  `rate_limit_service.aclose()` always drops the cached client even if
+  closing it raises, and any test issuing more than one `await rl.check(...)`
+  wraps the whole sequence in a single `asyncio.run(...)` — mixing several
+  short-lived loops with one cached client is what "Event loop is closed"
+  means if you see it here. `TestClient` needs its `with` form for the same
+  reason — see `test_rate_limit.py::TestMiddleware`'s comment.
 
 ## What Still Isn't Built (Phase 12+)
 
@@ -1586,3 +1689,4 @@ Tested both directions (`alembic upgrade head` / `downgrade -1` /
 14. **Memory embeddings are JSONB, not pgvector** — stock Postgres 15 works. Swap point is `memory_service.retrieve()`.
 15. **Stripe is optional**: with no `STRIPE_SECRET_KEY`, `/billing/checkout` applies the plan directly and returns `simulated: true`.
 16. **Review is advisory; policy is enforcement** — `review_agent` never fails a run, only an `ApprovalPolicy` can block a deploy.
+17. **Sandbox execution needs the `worker` container's Docker socket mounted AND `SANDBOX_HOST_PATH` set correctly** — see "Execution Sandbox" above. Get either wrong and QA silently falls back to LLM-only review (safe, but not what you configured — check a run's `execute_tests` step, not just that the run succeeded).

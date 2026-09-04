@@ -3,6 +3,7 @@ import {
   Database,
   FileCode2,
   Layers,
+  Scale,
   ShieldCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -34,7 +35,7 @@ export function Platform() {
         </div>
 
         {/* Bento Grid Platform Superpowers */}
-        <div className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-14 grid gap-4 sm:grid-cols-2">
           {/* Bento Item 1: Skill Ecosystem */}
           <Reveal className="mk-bento-card group flex flex-col justify-between">
             <div>
@@ -86,6 +87,25 @@ export function Platform() {
             <div className="mt-6 rounded-xl border border-[var(--mk-hairline)] bg-[var(--mk-panel-2)] p-2.5 flex items-center justify-between text-xs mk-mono">
               <span className="text-[var(--mk-ink-3)]">Active:</span>
               <span className="text-purple-300 font-semibold">{selectedModel}</span>
+            </div>
+          </Reveal>
+
+          {/* Bento Item 4: Governance That Doesn't Reset Per Vendor */}
+          <Reveal delay={0.24} className="mk-bento-card group flex flex-col justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold mk-mono pb-3 border-b border-[var(--mk-hairline)]">
+                <Scale className="h-4 w-4" /> 04 — GOVERNED EVERYWHERE
+              </div>
+              <h3 className="text-xl font-bold text-[var(--mk-ink)] mt-4">One policy, every surface</h3>
+              <p className="text-sm text-[var(--mk-ink-2)] mt-2 leading-relaxed">
+                The same approval policy enforces identically whether the change lives on GitHub
+                or GitLab, and whichever agent vendor wrote it. Reviewer-score thresholds,
+                protected paths and cost caps do not reset when you switch either one.
+              </p>
+            </div>
+            <div className="mt-6 flex items-center justify-between rounded-xl border border-[var(--mk-hairline)] bg-[var(--mk-panel-2)] p-3 text-[11.5px] mk-mono text-[var(--mk-ink-2)]">
+              <span>Policy enforcement</span>
+              <span className="text-[var(--mk-pass)]">GitHub + GitLab ✓</span>
             </div>
           </Reveal>
         </div>

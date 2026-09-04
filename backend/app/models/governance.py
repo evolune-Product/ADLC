@@ -58,6 +58,17 @@ class ApprovalPolicy(Base):
     max_concurrent_runs: Mapped[int] = mapped_column(Integer, default=0)   # 0 = unlimited
     max_queue_depth: Mapped[int] = mapped_column(Integer, default=0)       # 0 = unlimited
 
+    # Conditional escalation for the workflow-approval path — "monetary
+    # thresholds, risk-level rules... only min_approvers/approver_roles are
+    # real" was the exact gap policy_service.py named as deferred. Each entry
+    # is {field, operator, value, min_approvers?, approver_roles?}; see
+    # policy_service.resolve_condition_override for the field vocabulary.
+    # Empty list = no conditions, byte-for-byte the same behaviour every
+    # existing policy row had before this column existed — including every
+    # use of this same policy on the deploy gate, which never evaluates
+    # conditions at all (there is no Work row on a Run).
+    conditions: Mapped[list] = mapped_column(JSONB, default=list)
+
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
