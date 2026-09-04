@@ -95,7 +95,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
             across one product is the fastest way to look like two products. */}
         <div className="flex items-center gap-2 text-foreground">
           <AdlcMark className="h-5 w-5" />
-          <span className="app-display text-sm tracking-tight text-foreground">ADLC</span>
+          <span className="app-display text-sm tracking-tight text-foreground">Evolune OS</span>
         </div>
         <button
           onClick={onClose}
@@ -213,7 +213,7 @@ function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
       >
         <Menu className="h-4 w-4" />
       </button>
-      <span className="lg:hidden app-display text-sm text-foreground">ADLC</span>
+      <span className="lg:hidden app-display text-sm text-foreground">Evolune OS</span>
       <div className="ml-auto flex items-center gap-1">
         {/* Reachable from every page in the product, not only from Settings —
             this is the kind of preference people change because of the room

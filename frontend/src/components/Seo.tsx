@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom'
 /**
  * Per-route document head.
  *
- * ADLC's public pages are client-rendered, so every crawler and every link
+ * Evolune OS's public pages are client-rendered, so every crawler and every link
  * unfurler — Google, Slack, LinkedIn, and increasingly GPTBot and ClaudeBot —
  * sees whatever is in `index.html` unless something rewrites it. Before this,
  * that meant `/pricing` shared the home page's title and description, and the
@@ -22,7 +22,7 @@ import { useLocation } from 'react-router-dom'
  * schema (a pricing page's FAQ, say) is injected here.
  */
 
-const SITE_URL = 'https://adlc.dev'
+const SITE_URL = 'https://evoluneos.com'
 
 type SeoProps = {
   title: string

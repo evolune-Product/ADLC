@@ -3,7 +3,7 @@ import { createContext, useContext } from 'react'
 /**
  * One theme preference for the whole product.
  *
- * ADLC has two design surfaces — the dark "foundry" marketing site and the
+ * Evolune OS has two design surfaces — the dark "foundry" marketing site and the
  * light cream product UI — and until now each one was hard-wired to a single
  * palette. That is a defensible brand decision and an indefensible product one:
  * a reviewer who works nights cannot use a permanently cream dashboard, and a

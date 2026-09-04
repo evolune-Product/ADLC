@@ -57,7 +57,7 @@ MAX_REDIRECTS = 5
 # something we are about to throw away.
 MAX_BYTES = 5 * 1024 * 1024
 CACHE_TTL_S = 600
-USER_AGENT = "Mozilla/5.0 (compatible; ADLC-SourceReader/1.0; +https://adlc.dev/bot)"
+USER_AGENT = "Mozilla/5.0 (compatible; EvoluneOS-SourceReader/1.0; +https://evoluneos.com/bot)"
 
 # ── scoring weights — keep in step with read.ts ─────────────────────────────
 PENALTY_LOW_REDUCTION = 15

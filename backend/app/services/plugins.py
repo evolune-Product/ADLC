@@ -246,7 +246,7 @@ PLUGINS: list[dict] = [
     {
         "key": "webhook", "label": "Custom webhook", "category": "chat", "depth": NOTIFY,
         "auth": AUTH_WEBHOOK, "url_label": "Endpoint URL",
-        "docs_url": "https://docs.adlc.dev/webhooks",
+        "docs_url": "https://docs.evoluneos.com/webhooks",
         "capabilities": ["Every platform event, HMAC-signed"],
         "verify": {"kind": "webhook_ping"},
         "notes": "Signed with the shared secret and retried — see `webhook_service`. "

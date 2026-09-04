@@ -318,12 +318,12 @@ export const FAQS = [
 /* ─────────────────────────────────────────────────────────────── positioning */
 
 /**
- * Where ADLC sits against the two categories buyers are already using.
+ * Where Evolune OS sits against the two categories buyers are already using.
  *
  * Written to survive being read by someone who uses those products daily. The
  * claims are category-level and about *design intent*, never about quality or
  * benchmarks — we have not run a comparison and will not imply we have. The
- * honest position is that ADLC is complementary to both: it does not want to
+ * honest position is that Evolune OS is complementary to both: it does not want to
  * be your editor, and it does not want to be the thing writing the code so
  * much as the thing deciding whether that code is allowed to ship.
  */
@@ -331,7 +331,7 @@ export const POSITIONING = {
   columns: [
     { key: 'ide', label: 'IDE assistants', note: 'Copilot, Cursor, Claude Code' },
     { key: 'agent', label: 'Autonomous agents', note: 'Devin, Factory droids' },
-    { key: 'adlc', label: 'ADLC', note: 'This' },
+    { key: 'adlc', label: 'Evolune OS', note: 'This' },
   ],
   rows: [
     {
@@ -373,7 +373,7 @@ export const POSITIONING = {
   ],
   /** The claim we are not making, said out loud. */
   disclaimer:
-    'These are design differences, not benchmarks. We have not run a head-to-head evaluation and this table does not imply one. Most teams that would use ADLC are already using something in the first column, and should keep it — ADLC governs what reaches production, it does not replace the editor you write in.',
+    'These are design differences, not benchmarks. We have not run a head-to-head evaluation and this table does not imply one. Most teams that would use Evolune OS are already using something in the first column, and should keep it — Evolune OS governs what reaches production, it does not replace the editor you write in.',
 } as const
 
 /* ───────────────────────────────────────────────────────────────── security */
@@ -496,7 +496,7 @@ export const SECURITY_POSTURE: ReadonlyArray<{
     items: [
       {
         title: 'SOC 2 / ISO 27001',
-        body: 'No certification and no audit in progress. We are not going to display a badge we have not earned. If a certification is a hard requirement for your procurement process today, ADLC will not clear it today.',
+        body: 'No certification and no audit in progress. We are not going to display a badge we have not earned. If a certification is a hard requirement for your procurement process today, Evolune OS will not clear it today.',
         state: 'absent',
       },
       {

@@ -164,7 +164,7 @@ curl ${apiBase}/v1/runs/<run_id> -H "Authorization: Bearer adlc_live_…"`}</pre
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Point Claude Code, Cursor, Continue or any other MCP client at ADLC and it can list
+          Point Claude Code, Cursor, Continue or any other MCP client at Evolune OS and it can list
           runs, start them, see what is waiting at the approval gate, and read a URL as clean
           Markdown. It authenticates with the same API keys above — so a client only gets the
           scopes you minted the key with.

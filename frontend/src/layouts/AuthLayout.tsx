@@ -46,7 +46,7 @@ export default function AuthLayout() {
 
           <Link to="/" className="relative flex items-center gap-2.5">
             <AdlcMark />
-            <span className="mk-display text-[15px] tracking-tight">ADLC</span>
+            <span className="mk-display text-[15px] tracking-tight">Evolune OS</span>
           </Link>
 
           <div className="relative max-w-[26ch]">
@@ -89,7 +89,7 @@ export default function AuthLayout() {
           <header className="flex h-16 shrink-0 items-center border-b border-[var(--mk-hairline)] px-6 lg:hidden">
             <Link to="/" className="flex items-center gap-2.5">
               <AdlcMark />
-              <span className="mk-display text-[15px] tracking-tight">ADLC</span>
+              <span className="mk-display text-[15px] tracking-tight">Evolune OS</span>
             </Link>
           </header>
 

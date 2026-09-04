@@ -36,12 +36,12 @@
       })()
     </script>
 
-    <title>ADLC — Ship agent work you can actually approve</title>
+    <title>Evolune OS — Ship agent work you can actually approve</title>
     <meta
       name="description"
-      content="ADLC runs your whole delivery loop with AI agents — plan, code, test, review — and stops at an approval gate a human controls. Every deploy is policy-checked and written to an audit log."
+      content="Evolune OS runs your whole delivery loop with AI agents — plan, code, test, review — and stops at an approval gate a human controls. Every deploy is policy-checked and written to an audit log."
     />
-    <link rel="canonical" href="https://adlc.dev/" />
+    <link rel="canonical" href="https://evoluneos.com/" />
 
     <!-- The browser chrome follows the page. Two entries so the address bar is
          right in both themes without JavaScript having to update it. -->
@@ -49,30 +49,30 @@
     <meta name="theme-color" content="#08070a" media="(prefers-color-scheme: dark)" />
 
     <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="ADLC" />
-    <meta property="og:title" content="ADLC — Ship agent work you can actually approve" />
+    <meta property="og:site_name" content="Evolune OS" />
+    <meta property="og:title" content="Evolune OS — Ship agent work you can actually approve" />
     <meta
       property="og:description"
       content="The governed execution layer for AI software delivery. Ticket to production, with a gate in the middle that a human controls."
     />
-    <meta property="og:url" content="https://adlc.dev/" />
+    <meta property="og:url" content="https://evoluneos.com/" />
     <!-- A raster, not the SVG the rest of the site's art is drawn in: Facebook,
          X, LinkedIn and Slack all refuse SVG in a card and fall back to no
          image at all. Regenerate with scripts/og.mjs if the headline changes. -->
-    <meta property="og:image" content="https://adlc.dev/og.png" />
+    <meta property="og:image" content="https://evoluneos.com/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta
       property="og:image:alt"
-      content="ADLC — the delivery pipeline drawn as a rail of agent stages stopping at a red approval gate before dev, qa and prod."
+      content="Evolune OS — the delivery pipeline drawn as a rail of agent stages stopping at a red approval gate before dev, qa and prod."
     />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="ADLC — Ship agent work you can actually approve" />
+    <meta name="twitter:title" content="Evolune OS — Ship agent work you can actually approve" />
     <meta
       name="twitter:description"
       content="The governed execution layer for AI software delivery. Ticket to production, with a gate in the middle that a human controls."
     />
-    <meta name="twitter:image" content="https://adlc.dev/og.png" />
+    <meta name="twitter:image" content="https://evoluneos.com/og.png" />
 
     <!--
       Structured data lives here rather than being injected by React, because a
@@ -87,40 +87,52 @@
         "@graph": [
           {
             "@type": "Organization",
-            "@id": "https://adlc.dev/#organization",
+            "@id": "https://evoluneos.com/#organization",
             "name": "Evolune EdgeTech LLP",
-            "url": "https://adlc.dev/",
-            "brand": { "@type": "Brand", "name": "ADLC" }
+            "url": "https://evoluneos.com/",
+            "brand": { "@type": "Brand", "name": "Evolune OS" }
           },
           {
             "@type": "SoftwareApplication",
-            "@id": "https://adlc.dev/#software",
-            "name": "ADLC",
+            "@id": "https://evoluneos.com/#software",
+            "name": "Evolune OS",
             "applicationCategory": "DeveloperApplication",
             "operatingSystem": "Web",
-            "publisher": { "@id": "https://adlc.dev/#organization" },
-            "description": "Agentic software delivery lifecycle platform. AI agents plan, write, test and review changes; every production deploy stops at a human approval gate and a policy check, and is written to an immutable audit log.",
+            "publisher": { "@id": "https://evoluneos.com/#organization" },
+            "description": "Evolune OS is an agentic development life cycle (ADLC) platform. AI agents plan, write, test and review changes; every production deploy stops at a human approval gate and a policy check, and is written to an immutable audit log.",
+            "featureList": [
+              "Multi-agent delivery pipeline: plan, code, test, review",
+              "Human approval gate on every production deploy",
+              "Policy engine: minimum approvers, reviewer score thresholds, protected paths, per-run cost caps",
+              "Immutable audit log with configurable retention and CSV evidence export",
+              "Bring your own model key across Anthropic, OpenAI, Azure OpenAI, any OpenAI-compatible endpoint, or local Ollama",
+              "GitHub, GitLab, Jira, Linear and Slack integration",
+              "Self-hosted or VPC deployment"
+            ],
             "offers": [
               {
                 "@type": "Offer",
                 "name": "Free",
                 "price": "0",
                 "priceCurrency": "USD",
-                "category": "free"
+                "category": "free",
+                "description": "25 runs a month, one project, your own model key. No card."
               },
               {
                 "@type": "Offer",
-                "name": "Team",
-                "price": "199",
+                "name": "Pro",
+                "price": "100",
                 "priceCurrency": "USD",
-                "category": "subscription"
+                "category": "subscription",
+                "description": "For a team putting real tickets through the pipeline."
               },
               {
                 "@type": "Offer",
-                "name": "Growth",
-                "price": "699",
+                "name": "Enterprise",
+                "price": "5000",
                 "priceCurrency": "USD",
-                "category": "subscription"
+                "category": "subscription",
+                "description": "25 seats, unlimited runs, approval policies, self-hosted or VPC."
               }
             ]
           }
