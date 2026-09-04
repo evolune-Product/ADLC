@@ -1,12 +1,44 @@
-# ADLC — https://adlc.dev
+# Evolune OS — https://evoluneos.com
 #
-# The public site is /, /pricing and /security. Everything else is either the
-# product itself (behind auth, and useless to a crawler) or an OAuth callback.
+# The public site is /, /pricing, /security, /how-it-works, /the-gate and
+# /platform. Everything else is either the product itself (behind auth, and
+# useless to a crawler) or an OAuth callback.
+
+# The answer engines are told explicitly that the public pages are open to
+# them. None of them were blocked before — there is no blanket disallow here —
+# but "not blocked" and "named and allowed" are different signals, and a
+# silent block copied in from another site's robots file is the most common
+# way a site disappears from AI answers without anyone noticing.
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-User
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: cohere-ai
+User-agent: Bytespider
+Allow: /$
+Allow: /pricing
+Allow: /security
+Allow: /how-it-works
+Allow: /the-gate
+Allow: /platform
+Disallow: /dashboard
+Disallow: /login
+Disallow: /register
+Disallow: /auth/
+Disallow: /org/
 
 User-agent: *
 Allow: /$
 Allow: /pricing
 Allow: /security
+Allow: /how-it-works
+Allow: /the-gate
+Allow: /platform
 
 Disallow: /dashboard
 Disallow: /login
@@ -30,4 +62,4 @@ Disallow: /compliance
 Disallow: /notifications
 Disallow: /org/
 
-Sitemap: https://adlc.dev/sitemap.xml
+Sitemap: https://evoluneos.com/sitemap.xml

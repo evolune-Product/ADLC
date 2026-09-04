@@ -1,0 +1,34 @@
+# Evolune OS
+
+> An agentic development life cycle (ADLC) platform. AI agents plan, write, test and review a ticket; every production deploy stops at an approval gate a human controls, is checked against a policy, and is written to an immutable audit log. Built by Evolune EdgeTech LLP.
+
+Evolune OS is the governed execution layer between "an agent wrote this" and "this is in production". It does not try to be the editor you write in — it decides what is allowed to ship.
+
+## What it does
+
+- **A run is one ticket through one pod of agents** — plan, code, QA, review, approval, deploy. Retries inside a run are not a second run.
+- **The approval gate is the product.** A policy decides whether a human's click was sufficient: how many approvers, at what reviewer score, with which severities outstanding, on files the agent was permitted to touch, under a cost ceiling.
+- **Every decision is written down** — who approved, under which policy, against which reviewer score, at what time, on which environment. Exportable as compliance evidence.
+- **Model choice is per agent.** Anthropic, OpenAI, Azure OpenAI, any OpenAI-compatible endpoint, or a local Ollama. Bring your own key; inference is billed by your provider on your contract, at zero markup.
+- **It works where the work already is** — tickets from Jira or Linear, branches and pull requests to GitHub or GitLab, approvals to Slack and email, plus a scoped public API, signed webhooks and an MCP server.
+
+## Pages
+
+- [Home](https://evoluneos.com/): the claim, an interactive cockpit demo, and the delivery pipeline.
+- [How it works](https://evoluneos.com/how-it-works): one ticket, six steps, one of them a person.
+- [The approval gate](https://evoluneos.com/the-gate): a playable policy demo — toggle real rules against a sample run and watch a deploy stop.
+- [Platform](https://evoluneos.com/platform): skills as markdown, codebase memory, model freedom, integrations.
+- [Pricing](https://evoluneos.com/pricing): Free ($0, 25 runs/month, your own model key), Pro ($100/month), Enterprise ($5,000/month, 25 seats).
+- [Security & data](https://evoluneos.com/security): what is enforced, and what is not built yet, in the same type.
+
+## What it does not have
+
+Stated here for the same reason it is stated on the site: a buyer finds the gaps in week one anyway.
+
+- No SOC 2 and no ISO 27001 certification, and no audit in progress.
+- SAML and SCIM are not supported. OIDC single sign-on is (Okta, Entra ID, Google Workspace, Auth0, Keycloak, PingFederate).
+- No marketplace creator payouts, no mobile push notifications.
+
+## Notes for agents
+
+This file follows the llms.txt convention. Adoption among AI *search* crawlers is low and no major model provider has committed to reading it, so it is published mainly for coding agents and IDE assistants that fetch it directly. Everything above is also present as ordinary HTML on the pages linked, and as JSON-LD (Organization, SoftwareApplication, FAQPage) in each page's head.
