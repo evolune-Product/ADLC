@@ -8,6 +8,9 @@ import ErrorBoundary from '@/components/ErrorBoundary'
 import LandingPage from '@/pages/landing/LandingPage'
 import PricingPage from '@/pages/landing/PricingPage'
 import SecurityPage from '@/pages/landing/SecurityPage'
+import HowItWorksPage from '@/pages/landing/HowItWorksPage'
+import TheGatePage from '@/pages/landing/TheGatePage'
+import PlatformPage from '@/pages/landing/PlatformPage'
 import AuthLayout from '@/layouts/AuthLayout'
 import DashboardLayout from '@/layouts/DashboardLayout'
 import LoginPage from '@/pages/auth/LoginPage'
@@ -220,6 +223,9 @@ export default function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/security" element={<SecurityPage />} />
+            <Route path="/how-it-works" element={<HowItWorksPage />} />
+            <Route path="/the-gate" element={<TheGatePage />} />
+            <Route path="/platform" element={<PlatformPage />} />
             {/* A real 404. This used to redirect every unknown URL to
                 /dashboard, which sent signed-out visitors who mistyped a path —
                 or followed a stale link — through /dashboard to /login, and

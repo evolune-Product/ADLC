@@ -73,9 +73,9 @@ export function AdlcMark({ className }: { className?: string }) {
 }
 
 const NAV_LINKS = [
-  { label: 'How it works', href: '/#how-it-works' },
-  { label: 'The gate', href: '/#the-gate' },
-  { label: 'Platform', href: '/#platform' },
+  { label: 'How it works', href: '/how-it-works' },
+  { label: 'The gate', href: '/the-gate' },
+  { label: 'Platform', href: '/platform' },
   { label: 'Pricing', href: '/pricing' },
   { label: 'Security', href: '/security' },
 ]
@@ -218,17 +218,17 @@ const FOOTER_GROUPS = [
   {
     title: 'Product',
     links: [
-      { label: 'How it works', to: '/#how-it-works' },
-      { label: 'The approval gate', to: '/#the-gate' },
-      { label: 'Platform', to: '/#platform' },
+      { label: 'How it works', to: '/how-it-works' },
+      { label: 'The approval gate', to: '/the-gate' },
+      { label: 'Platform', to: '/platform' },
       { label: 'Pricing', to: '/pricing' },
     ],
   },
   {
     title: 'Platform',
     links: [
-      { label: 'Model providers', to: '/#models' },
-      { label: 'Integrations', to: '/#integrations' },
+      { label: 'Model providers', to: '/platform#models' },
+      { label: 'Integrations', to: '/platform' },
       { label: 'Security & data', to: '/security' },
       { label: 'Questions', to: '/#faq' },
     ],

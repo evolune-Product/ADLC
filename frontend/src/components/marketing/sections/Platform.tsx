@@ -17,8 +17,9 @@ export function Platform() {
     <section className="mk-section relative" id="platform">
       <div className="mk-shell relative z-10">
         <div className="max-w-3xl">
-          <Eyebrow n="04">Platform architecture</Eyebrow>
+          <Eyebrow>Platform architecture</Eyebrow>
           <SplitHeading
+            as="h1"
             text="Four things compound. None of them are portable to a competitor."
             highlight={['compound.']}
             className="mk-display mt-6 text-[clamp(32px,4.8vw,60px)] font-bold tracking-tight"

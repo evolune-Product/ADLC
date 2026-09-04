@@ -1,8 +1,8 @@
 import { Fragment, useState } from 'react'
 import { Check, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Reveal, SplitHeading } from '../Reveal'
-import { Eyebrow, MkButton } from '../ui'
+import { Reveal } from '../Reveal'
+import { MkButton } from '../ui'
 import { PLANS, PRICING_NOTES, formatInrWithGst } from '../content'
 
 type Currency = 'usd' | 'inr'
@@ -153,7 +153,7 @@ function Line({ label, value }: { label: string; value: string }) {
  * all visible and user-driven, and the output is explicitly framed as an
  * estimate the visitor computed, not a measured claim about this platform.
  */
-function RoiCalculator() {
+export function RoiCalculator() {
   const [teamSize, setTeamSize] = useState(8)
   const ticketsPerEngineerPerMonth = 12
   const hoursSavedPerTicket = 3.5
@@ -209,49 +209,6 @@ function RoiCalculator() {
         </div>
       </div>
     </div>
-  )
-}
-
-export function PricingSection() {
-  return (
-    <section className="mk-section relative" id="pricing">
-      <div className="mk-shell relative z-10">
-        <div className="max-w-3xl">
-          <Eyebrow n="06">Pricing</Eyebrow>
-          <SplitHeading
-            text="Pay for runs. Buy seats for governance."
-            highlight={['governance.']}
-            className="mk-display mt-6 text-[clamp(32px,4.8vw,60px)] font-bold tracking-tight"
-          />
-          <Reveal delay={0.15}>
-            <p className="mt-6 max-w-[62ch] text-[clamp(15px,1.6vw,18px)] leading-relaxed text-[var(--mk-ink-2)]">
-              A run is one ticket taken through one pod — plan, code, QA, review, approval, deploy.
-              Retries inside a run are never a second charge. Start free on your own keys, no card
-              required.
-            </p>
-          </Reveal>
-        </div>
-
-        <div className="mt-14">
-          <PricingPlans />
-        </div>
-
-        {/* Interactive ROI Calculator */}
-        <RoiCalculator />
-
-        <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-          <p className="text-[13px] text-[var(--mk-ink-3)]">
-            All prices in USD, excluding tax. Committed-use terms on request.
-          </p>
-          <a
-            href="/pricing"
-            className="mk-mono text-[12px] uppercase tracking-[0.14em] text-[var(--mk-ember-lit)] hover:underline"
-          >
-            Full feature comparison matrix &rarr;
-          </a>
-        </div>
-      </div>
-    </section>
   )
 }
 

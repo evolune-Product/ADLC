@@ -22,7 +22,7 @@ export default function NotFoundPage() {
   return (
     <div className="mk-root relative min-h-screen bg-[var(--mk-ground)] text-[var(--mk-ink)]">
       <Seo
-        title="Page not found — ADLC"
+        title="Page not found — Evolune OS"
         description="That page does not exist."
         /* Nothing here should ever be indexed, and a 404 must not present
            itself as the canonical version of anything. */
@@ -58,8 +58,9 @@ export default function NotFoundPage() {
 
         <nav className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
           {[
-            { label: 'How it works', to: '/#how-it-works' },
-            { label: 'The approval gate', to: '/#the-gate' },
+            { label: 'How it works', to: '/how-it-works' },
+            { label: 'The approval gate', to: '/the-gate' },
+            { label: 'Platform', to: '/platform' },
             { label: 'Pricing', to: '/pricing' },
             { label: 'Security', to: '/security' },
           ].map((link) => (

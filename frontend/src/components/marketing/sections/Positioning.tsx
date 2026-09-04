@@ -12,7 +12,7 @@ import { POSITIONING } from '../content'
  * says so in as many words rather than in a footnote nobody reads.
  *
  * The honest position is also the stronger one: most of these buyers are
- * already using something in the first column and should keep it. ADLC governs
+ * already using something in the first column and should keep it. Evolune OS governs
  * what reaches production. It is not trying to be the editor.
  */
 export function Positioning() {
@@ -22,7 +22,7 @@ export function Positioning() {
     <section id="positioning" className="mk-section">
       <div className="mk-shell">
         <SectionHead
-          n="05"
+          n="02"
           eyebrow="Where this sits"
           standfirst="Three different bets on what the bottleneck is. The first two assume it is writing the code. This one assumes it stopped being that a while ago."
         >
@@ -39,7 +39,7 @@ export function Positioning() {
           <div className="-mx-[var(--mk-gutter)] overflow-x-auto px-[var(--mk-gutter)] pb-2">
             <table className="w-full min-w-[720px] border-collapse text-left">
               <caption className="sr-only">
-                How ADLC differs by design from IDE assistants and autonomous coding agents
+                How Evolune OS differs by design from IDE assistants and autonomous coding agents
               </caption>
               <thead>
                 <tr className="border-b border-[var(--mk-hairline-lit)]">

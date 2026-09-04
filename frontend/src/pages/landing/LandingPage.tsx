@@ -5,13 +5,10 @@ import { Atmosphere, MarketingFooter, MarketingNav } from '@/components/marketin
 import { useMarketingSurface } from '@/components/marketing/hooks'
 import type { PipelinePhase } from '@/components/marketing/scene/pipelineTimeline'
 import { Hero } from '@/components/marketing/sections/Hero'
+import { Marquee } from '@/components/marketing/sections/Marquee'
 import { Problem } from '@/components/marketing/sections/Problem'
 import { Interstitial } from '@/components/marketing/sections/Interstitial'
-import { HowItWorks } from '@/components/marketing/sections/HowItWorks'
-import { TheGate } from '@/components/marketing/sections/TheGate'
-import { Platform } from '@/components/marketing/sections/Platform'
 import { Positioning } from '@/components/marketing/sections/Positioning'
-import { PricingSection } from '@/components/marketing/sections/Pricing'
 import { Trust } from '@/components/marketing/sections/Trust'
 import { Faq } from '@/components/marketing/sections/Faq'
 import { ClosingCta } from '@/components/marketing/sections/ClosingCta'
@@ -40,8 +37,8 @@ export default function LandingPage() {
   return (
     <div className="mk-root relative min-h-screen bg-[var(--mk-ground)] text-[var(--mk-ink)]">
       <Seo
-        title="ADLC — Ship agent work you can actually approve"
-        description="ADLC runs your whole delivery loop with AI agents — plan, code, test, review — and stops at an approval gate a human controls. Every deploy is policy-checked and written to an audit log."
+        title="Evolune OS — Ship agent work you can actually approve"
+        description="Evolune OS runs your whole delivery loop with AI agents — plan, code, test, review — and stops at an approval gate a human controls. Every deploy is policy-checked and written to an audit log."
         path="/"
         schema={FAQ_SCHEMA}
       />
@@ -53,17 +50,23 @@ export default function LandingPage() {
             as a full-bleed layer behind the type. */}
         <Hero phase={phase} onPhase={handlePhase} />
 
+        <Marquee />
+
         <Problem />
 
         <Interstitial
           statement="The agent was never the risky part. The unreviewed merge was."
           highlight={['unreviewed', 'merge', 'was.']}
           rise={0.44}
-          caption="Autonomy without a control plane is not speed, it is unmeasured risk moved closer to production. ADLC does not slow the agents down — it makes the one moment that matters explicit, and writes down who owned it."
+          caption="Autonomy without a control plane is not speed, it is unmeasured risk moved closer to production. Evolune OS does not slow the agents down — it makes the one moment that matters explicit, and writes down who owned it."
         />
 
-        <HowItWorks />
-        <TheGate />
+        {/* "How is this different from what I already use?" is asked within the
+            first minute of every evaluation. Answered here, before the reader
+            is asked to trust anything else. How it works, the approval gate
+            and the platform itself each now have their own page — reachable
+            from the nav — rather than living mid-scroll here. */}
+        <Positioning />
 
         <Interstitial
           statement="Ask any platform who approved last Tuesday's deploy."
@@ -72,14 +75,6 @@ export default function LandingPage() {
           caption="Under which policy, against which reviewer score, on which files, at what cost. If the answer takes an afternoon of log archaeology, that is the gap this product exists to close — and it is the question your auditor is going to ask first."
         />
 
-        <Platform />
-
-        {/* "How is this different from what I already use?" is asked within the
-            first minute of every evaluation. Answered here, before pricing —
-            nobody weighs a price against a product they cannot place. */}
-        <Positioning />
-
-        <PricingSection />
         <Trust />
 
         {/* The FAQ used to live only on /pricing, which meant the answers to
@@ -89,7 +84,7 @@ export default function LandingPage() {
         <section className="mk-section" id="faq">
           <div className="mk-shell">
             <SectionHead
-              n="08"
+              n="04"
               eyebrow="Questions"
               standfirst="The ones a technical buyer asks before they will point an agent at their repository."
             >
@@ -131,7 +126,7 @@ const FAQ_SCHEMA = {
 
 /**
  * React Router does not scroll to `#anchor` on navigation, so arriving from
- * `/pricing` on a `/#the-gate` link would silently land at the top of the page.
+ * `/pricing` on a `/#faq` link would silently land at the top of the page.
  * Deferred a frame so the target section exists in the DOM before we look for
  * it.
  */

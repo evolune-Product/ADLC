@@ -106,8 +106,9 @@ export function HowItWorks() {
 
       <div className="mk-shell relative z-10">
         <div className="max-w-3xl">
-          <Eyebrow n="02">How a run works</Eyebrow>
+          <Eyebrow>How a run works</Eyebrow>
           <SplitHeading
+            as="h1"
             text="One ticket. Six steps. One of them is a person."
             highlight={['person.']}
             className="mk-display mt-6 text-[clamp(32px,4.8vw,60px)] font-bold tracking-tight"

@@ -166,8 +166,9 @@ export function TheGate() {
     <section className="mk-section" id="the-gate">
       <div className="mk-shell">
         <div className="max-w-3xl">
-          <Eyebrow n="03">The approval gate</Eyebrow>
+          <Eyebrow>The approval gate</Eyebrow>
           <SplitHeading
+            as="h1"
             text="An approval that anyone can give is not a control."
             highlight={['control.']}
             className="mk-display mt-6 text-[clamp(30px,4.6vw,58px)]"

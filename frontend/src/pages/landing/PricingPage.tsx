@@ -9,6 +9,7 @@ import {
   PricingComparison,
   PricingNotes,
   PricingPlans,
+  RoiCalculator,
 } from '@/components/marketing/sections/Pricing'
 import { Faq } from '@/components/marketing/sections/Faq'
 import { ClosingCta } from '@/components/marketing/sections/ClosingCta'
@@ -41,7 +42,7 @@ export default function PricingPage() {
   return (
     <div className="mk-root relative min-h-screen bg-[var(--mk-ground)] text-[var(--mk-ink)]">
       <Seo
-        title="Pricing — ADLC"
+        title="Pricing — Evolune OS"
         description="Free forever on your own model key, Pro at $100/mo, or Enterprise at $5,000/mo for 25 seats and unlimited runs. Runs are the meter, seats are the governance — and every run has an enforced budget cap."
         path="/pricing"
       />
@@ -84,6 +85,7 @@ export default function PricingPage() {
         <section className="pb-24">
           <div className="mk-shell">
             <PricingPlans />
+            <RoiCalculator />
             <p className="mt-6 text-[13px] text-[var(--mk-ink-3)]">
               All prices in USD, excluding tax. Annual billing and committed-use terms on request.
             </p>

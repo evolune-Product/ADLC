@@ -99,14 +99,10 @@ export function Hero({
         </div>
       </div>
 
-      {/* Interactive demo: a fixed sample ticket run through the pipeline, the
-          gate, and the agent logs. Illustrative — see HeroCockpit.tsx. */}
-      <div id="interactive-cockpit" className="relative z-10 mt-14 sm:mt-20 px-4 sm:px-6">
-        <HeroCockpit />
-      </div>
-
-      {/* The Continuous Run Timeline Stage */}
-      <div {...rise(0.62)} className="mk-rise relative z-10 mt-12 w-full">
+      {/* The Continuous Run Timeline Stage — the WebGL scene, full-bleed and
+          first: it is the state machine the rest of the hero narrates against,
+          so it earns the first look. */}
+      <div {...rise(0.62)} className="mk-rise relative z-10 mt-10 w-full">
         <div className="mk-shell text-center mb-4">
           <span className="mk-mono text-[11px] uppercase tracking-[0.2em] text-[var(--mk-ink-3)]">
             Runtime delivery line &amp; stage graph
@@ -115,8 +111,15 @@ export function Hero({
         <HeroStage phase={phase} onPhase={onPhase} />
       </div>
 
+      {/* Interactive demo: a fixed sample ticket run through the pipeline, the
+          gate, and the agent logs. Illustrative — see HeroCockpit.tsx. Sits
+          below the scene, the concrete screen after the abstract diagram. */}
+      <div id="interactive-cockpit" {...rise(0.72)} className="mk-rise relative z-10 mt-14 sm:mt-20 px-4 sm:px-6">
+        <HeroCockpit />
+      </div>
+
       {/* Instrument strip. Every value is counted from the codebase. */}
-      <div {...rise(0.78)} className="mk-rise mk-shell relative z-10 mt-8">
+      <div {...rise(0.84)} className="mk-rise mk-shell relative z-10 mt-8">
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-[var(--mk-hairline)] bg-[var(--mk-hairline)] shadow-2xl sm:grid-cols-4">
           {stats.map((stat) => (
             <div
