@@ -26,10 +26,10 @@ jobs:
             git pull origin master
 
             echo "── Building images ──"
-            docker compose build --no-cache backend worker nginx
+            docker compose build --no-cache backend worker frontend
 
             echo "── Starting services ──"
-            docker compose up -d
+            docker compose --profile app up -d
 
             echo "── Running migrations ──"
             docker compose exec -T backend alembic upgrade head
