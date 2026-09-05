@@ -12,9 +12,14 @@ import { graphExtent } from './pipelineTimeline'
  *    diagram that runs off the edge on one of them is worse than no diagram.
  *    The distance is solved from the graph's bounding box on every frame, so
  *    it holds at any viewport rather than at two guessed breakpoints.
- * 2. **Keep it alive.** A shallow pointer parallax so the band reads as a
- *    volume, and a permanent, almost imperceptible drift so a page nobody is
- *    touching is still never quite still.
+ * 2. **Keep it alive without the visitor's mouse driving it.** A permanent,
+ *    almost imperceptible time-based drift (the sin/cos terms below) so a
+ *    page nobody is touching is still never quite still. Pointer parallax
+ *    exists as a mechanism — `strength` scales it — but the Hero call site
+ *    passes `strength={0}`: a scene that shifts every time a visitor's hand
+ *    moves the mouse read as distracting rather than alive, so this stays
+ *    time-driven only. `strength` is still real, not vestigial, if a future
+ *    scene wants pointer response back.
  *
  * Damping is frame-rate independent (1 − e^(−k·dt)), so a 120 Hz display and a
  * throttled background tab arrive at the same position at the same wall-clock
@@ -64,8 +69,16 @@ export function Rig({
 
     // The look-at target drifts against the parallax, which widens the
     // apparent movement without moving the camera far enough to distort the
-    // composition or push a node out of frame.
-    lookAt.current.set(centreX - p.x * 0.18, centreY + (vertical ? 0 : 0.12) + p.y * 0.07, 0)
+    // composition or push a node out of frame. Scaled by `strength` too —
+    // otherwise `strength={0}` at the call site would stop the camera from
+    // translating but it would still rotate toward the pointer, which is
+    // still "the scene moves when the mouse moves" as far as anyone looking
+    // at it is concerned.
+    lookAt.current.set(
+      centreX - p.x * 0.18 * strength,
+      centreY + (vertical ? 0 : 0.12) + p.y * 0.07 * strength,
+      0,
+    )
     camera.lookAt(lookAt.current)
   })
 

@@ -35,7 +35,6 @@ export function PipelineScene({
 }) {
   const pointer = usePointer()
   const isSmall = useMediaQuery('(max-width: 900px)')
-  const isCoarse = useMediaQuery('(pointer: coarse)')
 
   const palette = useMemo(() => scenePalette(), [])
   const lastLabel = useRef<string | null>(null)
@@ -95,7 +94,11 @@ export function PipelineScene({
         vertical={isSmall}
       />
 
-      <Rig pointer={pointer} strength={isCoarse ? 0.35 : 1} vertical={isSmall} />
+      {/* strength={0}: the camera no longer moves with the pointer at all —
+          see Rig.tsx's docstring, point 2. `pointer` stays wired through
+          because Rig's signature still takes it; strength is what disables
+          the response, not the absence of the value. */}
+      <Rig pointer={pointer} strength={0} vertical={isSmall} />
 
       {/* Bloom is skipped entirely on the light theme rather than turned down.
           A luminance threshold of 0.18 against a cream ground selects the
