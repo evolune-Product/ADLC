@@ -47,7 +47,15 @@ export function Positioning() {
                     <span className="mk-readout-label">By design</span>
                   </th>
                   {columns.map((col) => (
-                    <th key={col.key} scope="col" className="w-[27%] py-4 pr-6 align-bottom">
+                    <th
+                      key={col.key}
+                      scope="col"
+                      className={
+                        col.key === 'adlc'
+                          ? 'w-[27%] rounded-t-xl border-x border-t border-[var(--mk-ember)]/30 bg-[var(--mk-wash-1)] py-4 pl-4 pr-4 align-bottom'
+                          : 'w-[27%] py-4 pr-6 align-bottom'
+                      }
+                    >
                       <div
                         className={
                           col.key === 'adlc'
@@ -65,7 +73,7 @@ export function Positioning() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {rows.map((row, i) => (
                   <tr key={row.question} className="border-b border-[var(--mk-hairline)] align-top">
                     <th scope="row" className="py-5 pr-6 text-[13.5px] font-medium text-[var(--mk-ink-2)]">
                       {row.question}
@@ -76,8 +84,17 @@ export function Positioning() {
                     <td className="py-5 pr-6 text-[14px] leading-snug text-[var(--mk-ink-3)]">
                       {row.agent}
                     </td>
-                    {/* The one column that is allowed to be lit. */}
-                    <td className="bg-[var(--mk-wash-1)] py-5 pl-4 pr-4 text-[14px] leading-snug text-[var(--mk-ink)]">
+                    {/* The one column that is allowed to be lit — a
+                        continuous ember-bordered panel running down the
+                        table, not just a flat wash, so it reads as "us" at
+                        a glance rather than on a read of every row. */}
+                    <td
+                      className={
+                        'border-x border-[var(--mk-ember)]/30 bg-[var(--mk-wash-1)] py-5 pl-4 pr-4 ' +
+                        'text-[14px] leading-snug text-[var(--mk-ink)] ' +
+                        (i === rows.length - 1 ? 'rounded-b-xl border-b' : '')
+                      }
+                    >
                       {row.adlc}
                     </td>
                   </tr>
