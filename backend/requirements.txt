@@ -1,8 +1,20 @@
 # Web framework
-fastapi==0.115.5
+#
+# fastapi, starlette and python-multipart are bumped here from a security
+# audit, not a routine refresh: the pinned 0.115.5/0.41.3/0.0.17 carried live
+# CVEs — a Host-header request.url path-spoofing bug in Starlette (fixed by
+# 1.3.1) that could desync what a path-keyed middleware sees from what the
+# router actually dispatches, and several unauthenticated DoS bugs in
+# python-multipart's form parser (quadratic-time parsing, unbounded reads —
+# fixed by 0.0.31). Verified, not assumed: the exact versions pinned below are
+# what this session's full test suite (397 tests) already ran clean against —
+# see requirements.txt's own git history / CLAUDE.md security-audit notes for
+# the reasoning, not just the version bump.
+fastapi==0.141.1
+starlette==1.4.1
 uvicorn[standard]==0.32.1
 gunicorn==23.0.0
-python-multipart==0.0.17
+python-multipart==0.0.32
 
 # Database
 sqlalchemy==2.0.36
@@ -14,7 +26,11 @@ pydantic[email]==2.10.2
 pydantic-settings==2.6.1
 
 # Auth
-python-jose[cryptography]==3.3.0
+# python-jose bumped for a JWT-bomb DoS (crafted high-compression-ratio JWE)
+# fixed in 3.4.0. Not the algorithm-confusion CVE also fixed there — this
+# codebase's own jwt.decode() pins algorithms=["HS256"] explicitly (see
+# routers/auth.py), so that particular bug was never reachable here regardless.
+python-jose[cryptography]==3.5.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 
@@ -36,7 +52,12 @@ celery[gevent]==5.4.0
 redis==5.2.0
 
 # WebSocket / realtime
-python-socketio==5.11.4
+# Bumped for a real RCE class: socket_app.py configures AsyncRedisManager, so
+# this deployment does use Redis as socket.io's inter-server queue — versions
+# before 5.14.0 deserialize queue messages with pickle, so a compromised Redis
+# (the same instance Celery and the rate limiter also use) could execute
+# arbitrary code in the socket.io server process. 5.14.0+ uses JSON instead.
+python-socketio==5.16.3
 
 # Storage
 minio==7.2.11
@@ -45,7 +66,13 @@ minio==7.2.11
 PyGithub==2.5.0
 
 # Token encryption
-cryptography==43.0.3
+# Bumped past several CVEs: a statically-linked vulnerable OpenSSL (affects
+# every outbound HTTPS call this backend makes — GitHub, GitLab, Jira, Stripe,
+# every LLM provider), plus X.509 chain-building bugs. This app's own use of
+# `cryptography` is Fernet (symmetric, encryption.py) — the X.509/EC-specific
+# CVEs are not a known reachable path here, but the OpenSSL bump alone is
+# worth taking for the outbound-TLS surface.
+cryptography==50.0.0
 
 # LLM / agents
 anthropic==0.39.0

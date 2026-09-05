@@ -109,7 +109,12 @@ class AuditMiddleware(BaseHTTPMiddleware):
         if request.method not in AUDIT_METHODS:
             return response
 
-        path = request.url.path
+        # scope["path"], not request.url.path — see rate_limit_middleware.py's
+        # comment on the same line shape. The audit log's whole value is that
+        # the recorded action matches what actually happened; reading a field
+        # a malformed Host header could desync from real routing would let a
+        # crafted request log the wrong action type for what it actually did.
+        path = request.scope["path"]
         if path in _SKIP_PATHS or path.startswith("/socket.io"):
             return response
 

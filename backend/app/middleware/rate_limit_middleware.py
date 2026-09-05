@@ -67,7 +67,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not settings.rate_limit_enabled:
             return await call_next(request)
 
-        tier, limit, window = resolve_tier(request.url.path)
+        # scope["path"], not request.url.path — Starlette < 1.3.1 could be
+        # made to reconstruct request.url from a malformed Host header (or, in
+        # a different bug, the request path itself) such that request.url.path
+        # disagreed with the path the router actually dispatched on. scope
+        # is the raw ASGI value the router itself uses, so it can never
+        # disagree with what's actually being served — a fix worth keeping
+        # even after the framework bump, since it removes the whole class of
+        # bug rather than one instance of it. See audit_middleware.py and
+        # plan_middleware.py, which read the same field for the same reason.
+        tier, limit, window = resolve_tier(request.scope["path"])
         # auth is always IP-keyed, even if a (stale/invalid) bearer token is
         # present — the whole point of this tier is defending the moment
         # before a caller has a valid credential.

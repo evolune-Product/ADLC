@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -180,4 +180,10 @@ def get_finding_screenshot(
     path = Path(finding.screenshot_path)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Screenshot file no longer exists on disk")
-    return FileResponse(path, media_type="image/png")
+    # A plain Response reading the whole file, not FileResponse — these are
+    # small (one browser-viewport PNG), so nothing here needs Range-request
+    # seeking, and Starlette's FileResponse Range-header parser had a real
+    # unauthenticated quadratic-time DoS (fixed upstream, but this sidesteps
+    # the whole code path rather than depending on staying ahead of it for an
+    # endpoint that never needed it).
+    return Response(content=path.read_bytes(), media_type="image/png")

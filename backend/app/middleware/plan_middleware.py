@@ -35,8 +35,12 @@ class PlanEnforcementMiddleware(BaseHTTPMiddleware):
         if request.method != "POST":
             return await call_next(request)
 
-        # Check if this is a resource creation endpoint
-        path = request.url.path
+        # Check if this is a resource creation endpoint.
+        # scope["path"], not request.url.path — see rate_limit_middleware.py's
+        # comment on the same line shape: it's the raw, routing-authoritative
+        # path, immune to the Host-header/path reconstruction bugs fixed in
+        # Starlette 1.3.1 that could desync request.url.path from real routing.
+        path = request.scope["path"]
         resource_type = None
 
         for route_prefix, res_type in self.RESOURCE_MAP.items():
